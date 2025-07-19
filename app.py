@@ -20,15 +20,13 @@ def extract_fields(text):
         "表面印刷": r"表面印刷[:：]\s*(.+)",
         "印刷データ": r"印刷データ[:：]\s*(.+)"
     }
+
     results = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text)
         value = match.group(1).strip() if match else ""
-
-        # 製造番号だけ末尾の ")" を削除
         if key == "製造番号":
-            value = re.sub(r"\)$", "", value).strip()
-
+            value = value.rstrip(")")
         results[key] = value
     return results
 
@@ -38,40 +36,37 @@ def index():
         text = request.form['text']
         fields = extract_fields(text)
 
-        # テンプレートファイル読み込み
-        template_path = os.path.join(os.path.dirname(__file__), 'printlist_form.xlsx')
+        # テンプレートExcelファイルを読み込む
+        template_path = os.path.join(os.path.dirname(__file__), "printlist_form.xlsx")
         wb = openpyxl.load_workbook(template_path)
         ws = wb.active
 
-        # セル配置（右隣セル）
+        # セル位置マッピング（テンプレート内のセル位置とデータキーの対応）
         cell_map = {
-            "製造番号": "F1",
+            "製造日": "B1",
+            "印刷番号": "D1",
             "会社名": "B2",
-            "製品名": "B3",
-            "製品種類": "D1",
-            "製造日": "A1",
-            "製造個数": "F2",
-            "製品番号": "G2",
-            "印刷番号": "H1",
-            "外装包材": "I2",
-            "表面印刷": "J2",
-            "印刷データ": "K2"
+            "製品名": "B3"
         }
 
         for key, cell in cell_map.items():
-            if fields.get(key):
-                ws[cell] = fields[key]
+            if key in fields and fields[key]:
+                # MergedCellでないことを確認してから値を設定
+                if not isinstance(ws[cell], openpyxl.cell.cell.MergedCell):
+                    ws[cell].value = fields[key]
 
-        # 書き出し
+        # 書き出し用のストリーム
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
+
         return send_file(
             excel_stream,
             as_attachment=True,
-            download_name='printlist.xlsx',
+            download_name='printlist_output.xlsx',
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
     return render_template('index.html')
 
 if __name__ == '__main__':
