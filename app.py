@@ -1,23 +1,11 @@
 from flask import Flask, render_template, request, send_file
 import io
+import openpyxl
 import re
-from openpyxl import load_workbook
+import os
 
 app = Flask(__name__)
 
-# テンプレートExcelファイルのパス
-TEMPLATE_PATH = "printlist_form.xlsx"
-
-# テンプレート内の出力セルマッピング
-FIELD_CELL_MAP = {
-    "製造日": "B1",
-    "製造番号": "E1",
-    "印刷番号": "E2",
-    "会社名": "B3",
-    "製品名": "B4"
-}
-
-# テキストからフィールドを抽出
 def extract_fields(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*(.+)",
@@ -35,36 +23,55 @@ def extract_fields(text):
     results = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text)
-        if match:
-            results[key] = match.group(1).strip()
+        value = match.group(1).strip() if match else ""
+
+        # 製造番号だけ末尾の ")" を削除
+        if key == "製造番号":
+            value = re.sub(r"\)$", "", value).strip()
+
+        results[key] = value
     return results
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         text = request.form['text']
-        extracted = extract_fields(text)
+        fields = extract_fields(text)
 
-        # テンプレートを読み込み
-        wb = load_workbook(TEMPLATE_PATH)
+        # テンプレートファイル読み込み
+        template_path = os.path.join(os.path.dirname(__file__), 'printlist_form.xlsx')
+        wb = openpyxl.load_workbook(template_path)
         ws = wb.active
 
-        # 該当するセルに書き込む
-        for field, value in extracted.items():
-            if field in FIELD_CELL_MAP:
-                ws[FIELD_CELL_MAP[field]] = value
+        # セル配置（右隣セル）
+        cell_map = {
+            "製造番号": "F1",
+            "会社名": "B2",
+            "製品名": "B3",
+            "製品種類": "D1",
+            "製造日": "A1",
+            "製造個数": "F2",
+            "製品番号": "G2",
+            "印刷番号": "H1",
+            "外装包材": "I2",
+            "表面印刷": "J2",
+            "印刷データ": "K2"
+        }
 
-        # Excelをメモリに保存して送信
+        for key, cell in cell_map.items():
+            if fields.get(key):
+                ws[cell] = fields[key]
+
+        # 書き出し
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
         return send_file(
             excel_stream,
             as_attachment=True,
-            download_name='extracted.xlsx',
+            download_name='printlist.xlsx',
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-
     return render_template('index.html')
 
 if __name__ == '__main__':
