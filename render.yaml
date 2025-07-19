@@ -1,0 +1,5 @@
+services:
+  - type: web
+    name: text-extractor
+    env: docker
+    plan: free
