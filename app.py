@@ -20,16 +20,16 @@ def get_credentials():
 
 def extract_data(text):
     patterns = {
-        "製造番号": r"製造番号[:：]\s*([^\s)]+)",  # スペースまたは ) で止める
+        "製造番号": r"製造番号[:：]\s*([^\s)]+)",
         "印刷番号": r"印刷番号[:：]\s*([^\n]+)",
         "製造日": r"製造日[:：]\s*([^\n]+)",
         "会社名": r"会社名[:：]\s*([^\n]+)",
         "製品名": r"製品名[:：]\s*([^\n]+)",
         "製品種類": r"製品種類[:：]\s*([^\n]+)",
         "外装包材": r"外装包材[:：]\s*([^\n]+)",
-        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*([^\n]+)",  # 2回目
+        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*([^\n]+)",
         "製造個数": r"製造個数[:：]\s*([^\n]+)",
-        "印刷データ（元）": r"印刷データ[:：]\s*([^\n]+)"
+        "印刷データ（元）": r"印刷データ[:：]\s*((?:.|\n)*?)\n"
     }
 
     results = {}
@@ -38,15 +38,17 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
-    # ファイル名（3回目のみ）
     file_name_matches = re.findall(r"ファイル名[:：]\s*([^\n]+)", text)
     if len(file_name_matches) >= 3:
         results["ファイル名"] = file_name_matches[2].strip()
 
-    # 印刷データ：新規/リピート
+    # 印刷データ：新規 or リピート
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
-        results["印刷データ"] = "リピート" if "同じデータ" in raw else "新規"
+        if "同じデータ" in raw:
+            results["印刷データ"] = "リピート"
+        else:
+            results["印刷データ"] = "新規"
     else:
         results["印刷データ"] = ""
 
