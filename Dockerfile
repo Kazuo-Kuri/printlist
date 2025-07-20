@@ -10,4 +10,5 @@ COPY . .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Flaskアプリを起動
+ENV PORT=10000
 CMD ["python", "app.py"]

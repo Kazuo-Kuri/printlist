@@ -1,73 +1,77 @@
 from flask import Flask, render_template, request, send_file
-import io
-import openpyxl
-import re
 import os
+import io
+import json
+import re
+from dotenv import load_dotenv
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from openpyxl import Workbook
 
+load_dotenv()
 app = Flask(__name__)
 
-def extract_fields(text):
+def get_credentials():
+    credentials_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+
+def extract_data(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*(.+)",
+        "印刷番号": r"印刷番号[:：]\s*(.+)",
+        "製造日": r"製造日[:：]\s*(.+)",
         "会社名": r"会社名[:：]\s*(.+)",
         "製品名": r"製品名[:：]\s*(.+)",
         "製品種類": r"製品種類[:：]\s*(.+)",
-        "製造日": r"製造日[:：]\s*(.+)",
-        "製造個数": r"製造個数[:：]\s*(.+)",
-        "製品番号": r"製品番号[:：]\s*(.+)",
-        "印刷番号": r"印刷番号[:：]\s*(.+)",
         "外装包材": r"外装包材[:：]\s*(.+)",
-        "表面印刷": r"表面印刷[:：]\s*(.+)",
-        "印刷データ": r"印刷データ[:：]\s*(.+)"
+        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+)",
+        "製造個数": r"製造個数[:：]\s*(.+)",
+        "ファイル名": r"ファイル名[:：]\s*(.+)",
+        "印刷データ（元）": r"印刷データ[:：]\s*(.+)"
     }
-
     results = {}
     for key, pattern in patterns.items():
-        match = re.search(pattern, text)
-        value = match.group(1).strip() if match else ""
-        if key == "製造番号":
-            value = value.rstrip(")")
-        results[key] = value
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            results[key] = match.group(1).strip()
+    if "印刷データ（元）" in results:
+        raw = results.pop("印刷データ（元）")
+        results["印刷データ"] = "リピート" if "同じデータ" in raw else "新規"
+    else:
+        results["印刷データ"] = ""
     return results
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route("/", methods=["GET", "POST"])
 def index():
-    if request.method == 'POST':
-        text = request.form['text']
-        fields = extract_fields(text)
+    extracted_data = {}
+    if request.method == "POST":
+        text = request.form["text"]
+        extracted_data = extract_data(text)
 
-        # テンプレートExcelファイルを読み込む
-        template_path = os.path.join(os.path.dirname(__file__), "printlist_form.xlsx")
-        wb = openpyxl.load_workbook(template_path)
+        wb = Workbook()
         ws = wb.active
+        for i, (k, v) in enumerate(extracted_data.items(), start=1):
+            ws.cell(row=i, column=1, value=k)
+            ws.cell(row=i, column=2, value=v)
 
-        # セル位置マッピング（テンプレート内のセル位置とデータキーの対応）
-        cell_map = {
-            "製造日": "B1",
-            "印刷番号": "D1",
-            "会社名": "B2",
-            "製品名": "B3"
-        }
-
-        for key, cell in cell_map.items():
-            if key in fields and fields[key]:
-                # MergedCellでないことを確認してから値を設定
-                if not isinstance(ws[cell], openpyxl.cell.cell.MergedCell):
-                    ws[cell].value = fields[key]
-
-        # 書き出し用のストリーム
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        return send_file(
-            excel_stream,
-            as_attachment=True,
-            download_name='printlist_output.xlsx',
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))
+        values = sheet.get_all_values()
+        start_row = len(values) + 2
+        for i, (k, v) in enumerate(extracted_data.items()):
+            sheet.update_cell(start_row + i, 1, k)
+            sheet.update_cell(start_row + i, 2, v)
 
-    return render_template('index.html')
+        return send_file(excel_stream, as_attachment=True, download_name="output.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    return render_template("index.html")
 
+# 🔽 Render対応のFlask起動設定
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)

@@ -1,2 +1,5 @@
 Flask
+gspread
+oauth2client
 openpyxl
+python-dotenv
