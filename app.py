@@ -3,6 +3,7 @@ import os
 import io
 import json
 import re
+import base64
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -12,7 +13,11 @@ load_dotenv()
 app = Flask(__name__)
 
 def get_credentials():
-    credentials_dict = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+    encoded = os.getenv("GOOGLE_CREDENTIALS_BASE64")
+    if not encoded:
+        raise ValueError("GOOGLE_CREDENTIALS_BASE64 is not set.")
+    decoded = base64.b64decode(encoded).decode("utf-8")
+    credentials_dict = json.loads(decoded)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
@@ -49,6 +54,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
+        # Excel出力
         wb = Workbook()
         ws = wb.active
         for i, (k, v) in enumerate(extracted_data.items(), start=1):
@@ -59,6 +65,7 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
+        # Googleスプレッドシート出力
         creds = get_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))
@@ -68,6 +75,11 @@ def index():
             sheet.update_cell(start_row + i, 1, k)
             sheet.update_cell(start_row + i, 2, v)
 
-        return send_file(excel_stream, as_attachment=True, download_name="output.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    return render_template("index.html")
+        return send_file(
+            excel_stream,
+            as_attachment=True,
+            download_name="output.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
+    return render_template("index.html")
