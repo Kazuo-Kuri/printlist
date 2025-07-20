@@ -3,18 +3,20 @@ import os
 import io
 import json
 import re
-from dotenv import load_dotenv
+from openpyxl import Workbook
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from openpyxl import Workbook
 
-load_dotenv()
 app = Flask(__name__)
 
+# Secret File 経由の認証ファイルパス
+CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
+
 def get_credentials():
-    path = "/etc/secrets/credentials.json"  # Render Secret Files の自動マウントパス
+    with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
+        credentials_dict = json.load(f)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    return ServiceAccountCredentials.from_json_keyfile_name(path, scope)
+    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
 def extract_data(text):
     patterns = {
@@ -60,10 +62,14 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google Sheets 出力
+        # Google Sheets 書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
-        sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))
+
+        SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+        SHEET_NAME = os.getenv("SHEET_NAME")  # 「データ専用シート」を想定
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+
         values = sheet.get_all_values()
         start_row = len(values) + 2
         for i, (k, v) in enumerate(extracted_data.items()):
