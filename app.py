@@ -9,9 +9,18 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# Secret File 経由の認証ファイルパス
+# 認証情報ファイルパス（Render Secret Files対応）
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-TEMPLATE_PATH = "printlist_form.xlsx"
+TEMPLATE_FILE = "printlist_form.xlsx"
+
+# 対応するセルのマッピング
+CELL_MAPPING = {
+    "製造日": "B2",
+    "製造番号": "E1",
+    "印刷番号": "E2",
+    "会社名": "B3",
+    "製品名": "B4"
+}
 
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
@@ -26,7 +35,12 @@ def extract_data(text):
         "製造日": r"製造日[:：]\s*(.+?)(?:\n|$)",
         "会社名": r"会社名[:：]\s*(.+?)(?:\n|$)",
         "製品名": r"製品名[:：]\s*(.+?)(?:\n|$)",
-        "印刷データ": r"印刷データ[:：]\s*(.+?)(?:\n|$)"
+        "製品種類": r"製品種類[:：]\s*(.+?)(?:\n|$)",
+        "外装包材": r"外装包材[:：]\s*(.+?)(?:\n|$)",
+        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+?)(?:\n|$)",
+        "製造個数": r"製造個数[:：]\s*(.+?)(?:\n|$)",
+        "ファイル名": r"<印刷用データ\(\.FMT\)>.*?ファイル名[:：]\s*(.+?)(?:\n|$)",
+        "印刷データ（元）": r"印刷データ[:：]\s*(.+?)(?:\n|$)"
     }
     results = {}
     for key, pattern in patterns.items():
@@ -34,57 +48,55 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
-    # 印刷データ分類：従来の〜という記載があれば「リピート」
-    raw = results.get("印刷データ", "")
-    if "従来の" in raw:
-        results["印刷データ"] = "リピート"
-    elif raw:
-        results["印刷データ"] = "新規"
+    if "印刷データ（元）" in results:
+        raw = results.pop("印刷データ（元）")
+        if "従来の" in raw:
+            results["印刷データ"] = "リピート"
+        else:
+            results["印刷データ"] = "新規"
     else:
         results["印刷データ"] = ""
-
-    # ファイル名（印刷用データ）のFMT部分のみ抽出
-    fmt_match = re.findall(r"<印刷用データ\(\.FMT\)>.*?ファイル名[：:\s]+(.+?\.FMT)", text, re.DOTALL)
-    if fmt_match:
-        results["ファイル名"] = fmt_match[-1].strip()
-    else:
-        results["ファイル名"] = ""
 
     return results
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    extracted_data = {}
     if request.method == "POST":
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excelテンプレート読み込み
-        wb = load_workbook(TEMPLATE_PATH)
+        # Excel出力 (テンプレートベース)
+        wb = load_workbook(TEMPLATE_FILE)
         ws = wb.active
+        for key, cell in CELL_MAPPING.items():
+            if key in extracted_data:
+                if not ws[cell].__class__.__name__ == "MergedCell":
+                    ws[cell] = extracted_data[key]
+                else:
+                    ws.cell(row=ws[cell].row, column=ws[cell].column, value=extracted_data[key])
 
-        # セルへの書き込みマッピング
-        cell_map = {
-            "製造日": "B2",
-            "製造番号": "E1",
-            "印刷番号": "E2",
-            "会社名": "B3",
-            "製品名": "B4"
-        }
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
 
-        for key, cell in cell_map.items():
-            value = extracted_data.get(key)
-            if value:
-                ws[cell] = value
+        # Google Sheets出力
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+        SHEET_NAME = os.getenv("SHEET_NAME")
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
-        # 保存
-        stream = io.BytesIO()
-        wb.save(stream)
-        stream.seek(0)
+        values = sheet.get_all_values()
+        start_row = len(values) + 2
+        for i, (k, v) in enumerate(extracted_data.items()):
+            sheet.update_cell(start_row + i, 1, k)
+            sheet.update_cell(start_row + i, 2, v)
 
         return send_file(
-            stream,
+            excel_stream,
             as_attachment=True,
-            download_name="printlist_output.xlsx",
+            download_name="output.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
