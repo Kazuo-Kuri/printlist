@@ -3,7 +3,6 @@ import os
 import io
 import json
 import re
-import base64
 from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -13,21 +12,9 @@ load_dotenv()
 app = Flask(__name__)
 
 def get_credentials():
-    encoded = os.getenv("GOOGLE_CREDENTIALS_BASE64")
-    if not encoded:
-        raise ValueError("GOOGLE_CREDENTIALS_BASE64 is not set.")
-
-    try:
-        print("📦 Base64 length:", len(encoded))  # デバッグ用
-        decoded_bytes = base64.b64decode(encoded)
-        decoded = decoded_bytes.decode("utf-8")
-        credentials_dict = json.loads(decoded)
-    except Exception as e:
-        print("🚨 Base64 decode error:", e)
-        raise
-
+    path = "/etc/secrets/credentials.json"  # Render Secret Files の自動マウントパス
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+    return ServiceAccountCredentials.from_json_keyfile_name(path, scope)
 
 def extract_data(text):
     patterns = {
@@ -73,7 +60,7 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google スプレッドシートへ書き込み
+        # Google Sheets 出力
         creds = get_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))

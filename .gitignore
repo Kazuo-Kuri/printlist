@@ -1,11 +1,4 @@
-# 環境変数・秘密鍵ファイル
 .env
 credentials.json
-
-# Pythonキャッシュ
 __pycache__/
 *.pyc
-
-# macOS や Vim などの一時ファイル
-.DS_Store
-*.swp
