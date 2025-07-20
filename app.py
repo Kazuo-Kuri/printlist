@@ -71,7 +71,3 @@ def index():
         return send_file(excel_stream, as_attachment=True, download_name="output.xlsx", mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     return render_template("index.html")
 
-# 🔽 Render対応のFlask起動設定
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
