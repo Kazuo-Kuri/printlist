@@ -16,8 +16,16 @@ def get_credentials():
     encoded = os.getenv("GOOGLE_CREDENTIALS_BASE64")
     if not encoded:
         raise ValueError("GOOGLE_CREDENTIALS_BASE64 is not set.")
-    decoded = base64.b64decode(encoded).decode("utf-8")
-    credentials_dict = json.loads(decoded)
+
+    try:
+        print("📦 Base64 length:", len(encoded))  # デバッグ用
+        decoded_bytes = base64.b64decode(encoded)
+        decoded = decoded_bytes.decode("utf-8")
+        credentials_dict = json.loads(decoded)
+    except Exception as e:
+        print("🚨 Base64 decode error:", e)
+        raise
+
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
@@ -54,7 +62,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excel出力
+        # Excel 出力
         wb = Workbook()
         ws = wb.active
         for i, (k, v) in enumerate(extracted_data.items(), start=1):
@@ -65,7 +73,7 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Googleスプレッドシート出力
+        # Google スプレッドシートへ書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
         sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))
