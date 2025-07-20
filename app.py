@@ -3,45 +3,52 @@ import os
 import io
 import json
 import re
-from openpyxl import Workbook
+import base64
+from dotenv import load_dotenv
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from openpyxl import Workbook
 
+load_dotenv()
 app = Flask(__name__)
 
-# Secret File 経由の認証ファイルパス
-CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-
 def get_credentials():
-    with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
-        credentials_dict = json.load(f)
+    encoded = os.getenv("GOOGLE_CREDENTIALS_BASE64")
+    if not encoded:
+        raise ValueError("GOOGLE_CREDENTIALS_BASE64 is not set.")
+
+    decoded_bytes = base64.b64decode(encoded)
+    decoded = decoded_bytes.decode("utf-8")
+    credentials_dict = json.loads(decoded)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
 def extract_data(text):
     patterns = {
-        "製造番号": r"製造番号[:：]\s*(.+)",
-        "印刷番号": r"印刷番号[:：]\s*(.+)",
-        "製造日": r"製造日[:：]\s*(.+)",
-        "会社名": r"会社名[:：]\s*(.+)",
-        "製品名": r"製品名[:：]\s*(.+)",
-        "製品種類": r"製品種類[:：]\s*(.+)",
-        "外装包材": r"外装包材[:：]\s*(.+)",
-        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+)",
-        "製造個数": r"製造個数[:：]\s*(.+)",
-        "ファイル名": r"ファイル名[:：]\s*(.+)",
-        "印刷データ（元）": r"印刷データ[:：]\s*(.+)"
+        "製造番号": r"製造番号[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "印刷番号": r"印刷番号[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "製造日": r"製造日[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "会社名": r"会社名[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "製品名": r"製品名[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "製品種類": r"製品種類[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "外装包材": r"外装包材[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "表面印刷": r"表面印刷[:：][^\n]*?\n.*?表面印刷[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "製造個数": r"製造個数[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "ファイル名": r"ファイル名[:：]\s*([\s\S]*?)(?:\n\s*\n|$)",
+        "印刷データ（元）": r"印刷データ[:：]\s*([\s\S]*?)(?:\n\s*\n|$)"
     }
     results = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.DOTALL)
         if match:
             results[key] = match.group(1).strip()
+
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "同じデータ" in raw else "新規"
     else:
         results["印刷データ"] = ""
+
     return results
 
 @app.route("/", methods=["GET", "POST"])
@@ -51,7 +58,6 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excel 出力
         wb = Workbook()
         ws = wb.active
         for i, (k, v) in enumerate(extracted_data.items(), start=1):
@@ -62,14 +68,9 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google Sheets 書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
-
-        SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-        SHEET_NAME = os.getenv("SHEET_NAME")  # 「データ専用シート」を想定
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
-
+        sheet = client.open_by_key(os.getenv("SPREADSHEET_ID")).worksheet(os.getenv("SHEET_NAME"))
         values = sheet.get_all_values()
         start_row = len(values) + 2
         for i, (k, v) in enumerate(extracted_data.items()):
