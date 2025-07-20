@@ -9,18 +9,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# 認証情報ファイルパス（Render Secret Files対応）
+# Secret File 経由の認証ファイルパス
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-TEMPLATE_FILE = "printlist_form.xlsx"
-
-# 対応するセルのマッピング
-CELL_MAPPING = {
-    "製造日": "B2",
-    "製造番号": "E1",
-    "印刷番号": "E2",
-    "会社名": "B3",
-    "製品名": "B4"
-}
 
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
@@ -31,7 +21,7 @@ def get_credentials():
 def extract_data(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*([^\s)]+)",
-        "印刷番号": r"印刷番号[:：]\s*(.+?)(?:\n|$)",
+        "印刷番号": r"印刷番号[:：]\s*([^\s\n]+)",
         "製造日": r"製造日[:：]\s*(.+?)(?:\n|$)",
         "会社名": r"会社名[:：]\s*(.+?)(?:\n|$)",
         "製品名": r"製品名[:：]\s*(.+?)(?:\n|$)",
@@ -42,18 +32,17 @@ def extract_data(text):
         "ファイル名": r"<印刷用データ\(\.FMT\)>.*?ファイル名[:：]\s*(.+?)(?:\n|$)",
         "印刷データ（元）": r"印刷データ[:：]\s*(.+?)(?:\n|$)"
     }
+
     results = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.DOTALL)
         if match:
             results[key] = match.group(1).strip()
 
+    # 「印刷データ」区分判定（"従来の" が含まれていればリピート）
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
-        if "従来の" in raw:
-            results["印刷データ"] = "リピート"
-        else:
-            results["印刷データ"] = "新規"
+        results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
     else:
         results["印刷データ"] = ""
 
@@ -66,25 +55,34 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excel出力 (テンプレートベース)
-        wb = load_workbook(TEMPLATE_FILE)
+        # Excel テンプレート読込
+        template_path = "printlist_form.xlsx"
+        wb = load_workbook(template_path)
         ws = wb.active
-        for key, cell in CELL_MAPPING.items():
-            if key in extracted_data:
-                if not ws[cell].__class__.__name__ == "MergedCell":
-                    ws[cell] = extracted_data[key]
-                else:
-                    ws.cell(row=ws[cell].row, column=ws[cell].column, value=extracted_data[key])
 
+        # セルマッピング
+        cell_map = {
+            "製造日": "B1",
+            "製造番号": "E1",
+            "印刷番号": "E2",
+            "会社名": "B3",
+            "製品名": "B4"
+        }
+
+        for key, cell in cell_map.items():
+            if key in extracted_data:
+                ws[cell] = extracted_data[key]
+
+        # 出力ストリーム
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google Sheets出力
+        # Google スプレッドシート書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
         SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
-        SHEET_NAME = os.getenv("SHEET_NAME")
+        SHEET_NAME = os.getenv("SHEET_NAME")  # データ専用シート名
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
         values = sheet.get_all_values()
