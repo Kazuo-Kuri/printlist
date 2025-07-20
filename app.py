@@ -9,7 +9,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# Render Secret File 経由の認証ファイルパス
+# Secret File 経由の認証ファイルパス
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -20,34 +20,40 @@ def get_credentials():
 
 def extract_data(text):
     patterns = {
-        "製造番号": r"製造番号[:：]\s*(.+)",
-        "印刷番号": r"印刷番号[:：]\s*(.+)",
-        "製造日": r"製造日[:：]\s*(.+)",
-        "会社名": r"会社名[:：]\s*(.+)",
-        "製品名": r"製品名[:：]\s*(.+)",
-        "製品種類": r"製品種類[:：]\s*(.+)",
-        "外装包材": r"外装包材[:：]\s*(.+)",
-        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+)",
-        "製造個数": r"製造個数[:：]\s*(.+)",
-        "ファイル名": r"ファイル名[:：]\s*(.+)",
-        "印刷データ（元）": r"印刷データ[:：]\s*(.+)"
+        "製造番号": r"製造番号[:：]\s*([^\s
+)]+)",
+        "印刷番号": r"印刷番号[:：]\s*(.+?)
+",
+        "製造日": r"製造日[:：]\s*(.+?)
+",
+        "会社名": r"会社名[:：]\s*(.+?)
+",
+        "製品名": r"製品名[:：]\s*(.+?)
+",
+        "製品種類": r"製品種類[:：]\s*(.+?)
+",
+        "外装包材": r"外装包材[:：]\s*(.+?)
+",
+        "表面印刷": r"表面印刷[:：][^
+]+.*?表面印刷[:：]\s*(.+?)
+",
+        "製造個数": r"製造個数[:：]\s*(.+?)
+",
+        "ファイル名": r"ファイル名[:：]\s*(.+?)
+",
+        "印刷データ（元）": r"印刷データ[:：]\s*(.+?)
+"
     }
-
     results = {}
     for key, pattern in patterns.items():
         match = re.search(pattern, text, re.DOTALL)
         if match:
-            value = match.group(1).strip()
-            # 最初の改行で区切る
-            value = value.split("\n")[0].strip()
-            results[key] = value
-
+            results[key] = match.group(1).strip()
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "同じデータ" in raw else "新規"
     else:
         results["印刷データ"] = ""
-
     return results
 
 @app.route("/", methods=["GET", "POST"])
@@ -57,7 +63,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excelファイル作成
+        # Excel 出力
         wb = Workbook()
         ws = wb.active
         for i, (k, v) in enumerate(extracted_data.items(), start=1):
@@ -68,9 +74,10 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google スプレッドシートに書き込み
+        # Google Sheets 書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
+
         SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
         SHEET_NAME = os.getenv("SHEET_NAME")
         sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
