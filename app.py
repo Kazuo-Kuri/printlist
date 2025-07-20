@@ -9,7 +9,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# Render Secret File 経由の認証ファイル
+# Render Secret File 経由の認証ファイルパス
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -38,9 +38,9 @@ def extract_data(text):
         match = re.search(pattern, text, re.DOTALL)
         if match:
             value = match.group(1).strip()
-            # 空白行までで切り取り
-            split_value = re.split(r"\n\s*\n", value)[0].strip()
-            results[key] = split_value
+            # 最初の改行で区切る
+            value = value.split("\n")[0].strip()
+            results[key] = value
 
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
