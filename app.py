@@ -9,7 +9,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# --- Google認証と設定 ---
+# --- Google認証（Secret File 経由） ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -18,94 +18,105 @@ def get_credentials():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# gspread認証
-credentials = get_credentials()
-gc = gspread.authorize(credentials)
+# --- テキスト抽出 ---
+def extract_data(text):
+    patterns = {
+        "製造番号": r"製造番号[:：]\s*([^\s)]+)",
+        "印刷番号": r"印刷番号[:：]\s*([^\s\n]+)",
+        "製造日": r"製造日[:：]\s*(.+?)(?:\n|$)",
+        "会社名": r"会社名[:：]\s*(.+?)(?:\n|$)",
+        "製品名": r"製品名[:：]\s*(.+?)(?:\n|$)",
+        "製品種類": r"製品種類[:：]\s*(.+?)(?:\n|$)",
+        "外装包材": r"外装包材[:：]\s*(.+?)(?:\n|$)",
+        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+?)(?:\n|$)",
+        "製造個数": r"製造個数[:：]\s*(.+?)(?:\n|$)",
+        "ファイル名": r"<印刷用データ\(\.FMT\)>.*?ファイル名[:：]\s*(.+?)(?:\n|$)",
+        "印刷データ（元）": r"印刷データ[:：]\s*(.+?)(?:\n|$)"
+    }
 
-SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
-TEMPLATE_SHEET_NAME = "Sheet1"     # テンプレート用
-OUTPUT_SHEET_NAME = "printlist"    # 書き出し先
-EXCEL_TEMPLATE_PATH = "printlist_form.xlsx"
+    results = {}
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            results[key] = match.group(1).strip()
 
-# --- アップロード受付エンドポイント ---
-@app.route("/upload", methods=["POST"])
-def upload():
-    try:
-        data = request.form.to_dict()
+    # 印刷データ区分判定
+    if "印刷データ（元）" in results:
+        raw = results.pop("印刷データ（元）")
+        results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
+    else:
+        results["印刷データ"] = ""
 
-        # Excel出力
-        excel_bytes = generate_excel(data)
+    return results
 
-        # スプレッドシート出力
-        write_to_spreadsheet(data)
+# --- メインエンドポイント ---
+@app.route("/", methods=["GET", "POST"])
+def index():
+    extracted_data = {}
+    if request.method == "POST":
+        text = request.form["text"]
+        extracted_data = extract_data(text)
+
+        # Excel書き出し
+        wb = load_workbook("printlist_form.xlsx")
+        ws = wb.active
+
+        excel_map = {
+            "製造日": "B2",
+            "製造番号": "E1",
+            "印刷番号": "E2",
+            "会社名": "B3",
+            "製品名": "B4"
+        }
+
+        for key, cell in excel_map.items():
+            if key in extracted_data:
+                ws[cell] = extracted_data[key]
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        # スプレッドシート書き出し（テンプレート：Sheet1 → 出力先：printlist）
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        ss = client.open_by_key("1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E")
+        template_ws = ss.worksheet("Sheet1")
+        output_ws = ss.worksheet("printlist")
+
+        existing_rows = len(output_ws.get_all_values())
+        block_index = max((existing_rows - 2) // 10, 0)
+        start_row = block_index * 10 + 1
+
+        template_range = template_ws.get_values('A1:N10')
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+
+        sheet_map = {
+            "A3": "印刷データ",
+            "B3": "ファイル名",
+            "C3": "製造番号",
+            "C7": "印刷番号",
+            "D3": "製造日",
+            "E3": "会社名",
+            "E5": "製品名",
+            "G3": "製品種類",
+            "G6": "外装包材",
+            "G9": "表面印刷",
+            "L3": "製造個数"
+        }
+
+        for cell_a1, key in sheet_map.items():
+            if key in extracted_data:
+                row = int(cell_a1[1:])
+                col = ord(cell_a1[0].upper()) - 65 + 1
+                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
 
         return send_file(
-            io.BytesIO(excel_bytes),
-            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            excel_stream,
             as_attachment=True,
-            download_name="printlist_output.xlsx"
+            download_name="output.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
-# --- Excelファイル生成処理 ---
-def generate_excel(data):
-    wb = load_workbook(EXCEL_TEMPLATE_PATH)
-    ws = wb.active
-
-    mapping = {
-        "B2": data.get("製造日", ""),
-        "E1": data.get("製造番号", ""),
-        "E2": data.get("印刷番号", ""),
-        "B3": data.get("会社名", ""),
-        "B4": data.get("製品名", "")
-    }
-
-    for cell, value in mapping.items():
-        ws[cell] = value
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output.read()
-
-# --- スプレッドシート書き出し処理 ---
-def write_to_spreadsheet(data_dict):
-    ss = gc.open_by_key(SPREADSHEET_ID)
-    template_ws = ss.worksheet(TEMPLATE_SHEET_NAME)
-    output_ws = ss.worksheet(OUTPUT_SHEET_NAME)
-
-    # 次の書き込み位置（10行ブロック単位）
-    existing_rows = len(output_ws.get_all_values())
-    block_index = max((existing_rows - 2) // 10, 0)
-    start_row = block_index * 10 + 1
-
-    # テンプレート（A1:N10）をコピーして出力シートへ貼り付け
-    template_range = template_ws.get_values('A1:N10')
-    for i, row in enumerate(template_range):
-        output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
-
-    # 指定セルにデータ書き込み
-    cell_map = {
-        "A3": data_dict.get("印刷データ", ""),
-        "B3": data_dict.get("ファイル名", ""),
-        "C3": data_dict.get("製造番号", ""),
-        "C7": data_dict.get("印刷番号", ""),
-        "D3": data_dict.get("製造日", ""),
-        "E3": data_dict.get("会社名", ""),
-        "E5": data_dict.get("製品名", ""),
-        "G3": data_dict.get("製品種類", ""),
-        "G6": data_dict.get("外装包材", ""),
-        "G9": data_dict.get("表面印刷", ""),
-        "L3": data_dict.get("製造個数", "")
-    }
-
-    for cell_a1, value in cell_map.items():
-        row = int(cell_a1[1:])
-        col = ord(cell_a1[0].upper()) - 65 + 1
-        output_ws.update_cell(start_row + (row - 1), col, value)
-
-# --- Flask起動 ---
-if __name__ == "__main__":
-    app.run(debug=True)
+    return render_template("index.html")
