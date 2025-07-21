@@ -4,6 +4,7 @@ import io
 import json
 import re
 from openpyxl import load_workbook
+from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -40,7 +41,6 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
-    # 印刷データ区分判定
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -57,12 +57,10 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excel テンプレート読込
         template_path = "printlist_form.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
 
-        # セルマッピング
         cell_map = {
             "製造日": "B2",
             "製造番号": "E1",
@@ -73,14 +71,21 @@ def index():
 
         for key, cell in cell_map.items():
             if key in extracted_data:
-                ws[cell] = extracted_data[key]
+                target_cell = ws[cell]
+                if hasattr(target_cell, "merged_cells") or type(target_cell).__name__ == "MergedCell":
+                    for merged_range in ws.merged_cells.ranges:
+                        if cell in merged_range:
+                            min_col, min_row, _, _ = range_boundaries(str(merged_range))
+                            top_left_cell = ws.cell(row=min_row, column=min_col)
+                            top_left_cell.value = extracted_data[key]
+                            break
+                else:
+                    ws[cell] = extracted_data[key]
 
-        # 出力ストリーム
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google スプレッドシート書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
 
@@ -89,17 +94,14 @@ def index():
         template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
-        # 現在の行数をもとにブロック単位の挿入位置を決定
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # テンプレート (A1:N10) を対象位置にコピー
         template_range = template_ws.get_values("A1:N10")
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
-        # 書き込み対象マップ（シート座標 → 抽出データキー）
         sheet_map = {
             "A3": "印刷データ",
             "B3": "ファイル名",
@@ -114,7 +116,6 @@ def index():
             "L3": "製造個数"
         }
 
-        # データ書き込み（固定行と重複しない範囲のみ）
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
                 row = int(cell_a1[1:])
