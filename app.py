@@ -77,21 +77,24 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # スプレッドシート書き出し（テンプレート：Sheet1 → 出力先：printlist）
+        # Google スプレッドシート書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
         ss = client.open_by_key("1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E")
-        template_ws = ss.worksheet("Sheet1")
+
+        template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
+        # テンプレートコピー
         template_range = template_ws.get_values('A1:N10')
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
+        # 書き込みマップ（シート座標 → キー）
         sheet_map = {
             "A3": "印刷データ",
             "B3": "ファイル名",
