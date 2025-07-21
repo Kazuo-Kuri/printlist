@@ -139,13 +139,27 @@ def index():
 # --- Google Apps Script 側の clearData を呼び出すエンドポイント ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycb.../exec"  # ← 実際のURLに置き換えてください
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
-        if response.status_code == 200 and response.text == "CLEARED":
+        if response.status_code == 200 and response.text.strip() == "CLEARED":
             flash("スプレッドシートのデータをクリアしました。")
         else:
             flash("クリアに失敗しました：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
+# --- Google Apps Script 側のテンプレートブロックコピーを呼び出すエンドポイント ---
+@app.route("/copy", methods=["POST"])
+def copy_template_block():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
+            flash("テンプレートをコピーしました。")
+        else:
+            flash("コピーに失敗しました：" + response.text)
     except Exception as e:
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
