@@ -3,7 +3,6 @@ import os
 import io
 import json
 import re
-import requests
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
@@ -13,26 +12,12 @@ app = Flask(__name__)
 
 # --- Google認証（Secret File 経由） ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
-
 
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
         credentials_dict = json.load(f)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-
-
-# --- GAS呼び出し ---
-def call_gas_template_copy(start_row):
-    response = requests.post(GAS_ENDPOINT, json={"startRow": start_row})
-    print("GAS Response (template copy):", response.text)
-
-
-def call_gas_clear_data():
-    response = requests.post(GAS_ENDPOINT, json={"command": "clear"})
-    print("GAS Response (clear):", response.text)
-
 
 # --- テキスト抽出 ---
 def extract_data(text):
@@ -63,7 +48,6 @@ def extract_data(text):
         results["印刷データ"] = ""
 
     return results
-
 
 # --- メインエンドポイント ---
 @app.route("/", methods=["GET", "POST"])
@@ -107,14 +91,16 @@ def index():
 
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
+        template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # GAS でテンプレ貼付け
-        call_gas_template_copy(start_row)
+        template_range = template_ws.get_values("A1:N10")
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
         sheet_map = {
             "A3": "印刷データ",
