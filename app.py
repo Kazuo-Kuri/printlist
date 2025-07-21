@@ -1,7 +1,8 @@
+from flask import Flask, render_template, request, send_file
 import os
 import io
-import base64
-from flask import Flask, request, send_file, jsonify
+import json
+import re
 from openpyxl import load_workbook
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -9,12 +10,16 @@ from oauth2client.service_account import ServiceAccountCredentials
 app = Flask(__name__)
 
 # --- Google認証と設定 ---
-google_creds_base64 = os.getenv("GOOGLE_CREDENTIALS_BASE64")
-google_creds_json = base64.b64decode(google_creds_base64).decode("utf-8")
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(eval(google_creds_json), [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-])
+CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
+
+def get_credentials():
+    with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
+        credentials_dict = json.load(f)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+
+# gspread認証
+credentials = get_credentials()
 gc = gspread.authorize(credentials)
 
 SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
