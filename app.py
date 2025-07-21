@@ -57,11 +57,13 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excel書き出し
-        wb = load_workbook("printlist_form.xlsx")
+        # Excel テンプレート読込
+        template_path = "printlist_form.xlsx"
+        wb = load_workbook(template_path)
         ws = wb.active
 
-        excel_map = {
+        # セルマッピング
+        cell_map = {
             "製造日": "B2",
             "製造番号": "E1",
             "印刷番号": "E2",
@@ -69,10 +71,11 @@ def index():
             "製品名": "B4"
         }
 
-        for key, cell in excel_map.items():
+        for key, cell in cell_map.items():
             if key in extracted_data:
                 ws[cell] = extracted_data[key]
 
+        # 出力ストリーム
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
