@@ -83,21 +83,23 @@ def index():
         # Google スプレッドシート書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
-        ss = client.open_by_key("1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E")
 
+        SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
+        ss = client.open_by_key(SPREADSHEET_ID)
         template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
+        # 現在の行数をもとにブロック単位の挿入位置を決定
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # テンプレートコピー
-        template_range = template_ws.get_values('A1:N10')
+        # テンプレート (A1:N10) を対象位置にコピー
+        template_range = template_ws.get_values("A1:N10")
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
-        # 書き込みマップ（シート座標 → キー）
+        # 書き込み対象マップ（シート座標 → 抽出データキー）
         sheet_map = {
             "A3": "印刷データ",
             "B3": "ファイル名",
@@ -112,6 +114,7 @@ def index():
             "L3": "製造個数"
         }
 
+        # データ書き込み（固定行と重複しない範囲のみ）
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
                 row = int(cell_a1[1:])
