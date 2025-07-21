@@ -7,17 +7,6 @@
         function clearText() {
             document.getElementById("inputText").value = "";
         }
-
-        function clearData() {
-            if (confirm("スプレッドシートの全データを削除してもよろしいですか？")) {
-                fetch("/clear", {
-                    method: "POST"
-                })
-                .then(response => response.text())
-                .then(data => alert("結果: " + data))
-                .catch(error => alert("エラー: " + error));
-            }
-        }
     </script>
 </head>
 <body>
@@ -26,7 +15,6 @@
         <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
         <button type="submit">送信</button>
         <button type="button" onclick="clearText()">クリア</button>
-        <button type="button" onclick="clearData()">データクリア</button>
     </form>
 </body>
 </html>

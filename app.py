@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 import os
 import io
 import json
@@ -11,28 +11,18 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
+# --- Flask Secret Key 読み込み ---
+with open("/etc/secrets/flask_secret_key", "r") as f:
+    app.secret_key = f.read().strip()
+
 # --- Google認証（Secret File 経由） ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
-
 
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
         credentials_dict = json.load(f)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
-
-
-# --- GAS呼び出し ---
-def call_gas_template_copy(start_row):
-    response = requests.post(GAS_ENDPOINT, json={"startRow": start_row})
-    print("GAS Response (template copy):", response.text)
-
-
-def call_gas_clear_data():
-    response = requests.post(GAS_ENDPOINT, json={"command": "clear"})
-    print("GAS Response (clear):", response.text)
-
 
 # --- テキスト抽出 ---
 def extract_data(text):
@@ -63,7 +53,6 @@ def extract_data(text):
         results["印刷データ"] = ""
 
     return results
-
 
 # --- メインエンドポイント ---
 @app.route("/", methods=["GET", "POST"])
@@ -107,14 +96,16 @@ def index():
 
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
+        template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # GAS でテンプレ貼付け
-        call_gas_template_copy(start_row)
+        template_range = template_ws.get_values("A1:N10")
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
         sheet_map = {
             "A3": "印刷データ",
@@ -144,3 +135,20 @@ def index():
         )
 
     return render_template("index.html")
+
+# --- Google Apps Script 側の clearData を呼び出すエンドポイント ---
+@app.route("/clear", methods=["POST"])
+def clear_sheet():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycb.../exec"  # ← 実際のURLに置き換えてください
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        if response.status_code == 200 and response.text == "CLEARED":
+            flash("スプレッドシートのデータをクリアしました。")
+        else:
+            flash("クリアに失敗しました：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    app.run(debug=True)
