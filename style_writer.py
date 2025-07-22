@@ -54,7 +54,7 @@ def apply_template_style(ws, start_row):
     add_checkboxes(ws, checkbox_ranges)
 
     # === 担当列ドロップダウン ===
-    add_dropdown(ws, f"N{start_row+3}", ["未設定", "小島", "小林", "北裏" , "岩﨑", "小野"])
+    add_dropdown(ws, f"O{start_row+3}", ["未設定", "小島", "小林", "北裏" , "岩﨑", "小野"])
 
     # === その他：必要に応じて罫線や結合セル追加（高度処理）
     # ここでは gspread-formatting では未対応なため割愛
