@@ -8,6 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from style_writer import apply_template_style  # 追加
 
 app = Flask(__name__)
 
@@ -15,7 +16,7 @@ app = Flask(__name__)
 with open("/etc/secrets/flask_secret_key", "r") as f:
     app.secret_key = f.read().strip()
 
-# --- Google認証（Secret File 経由） ---
+# --- Google認証 ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -46,6 +47,7 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
+    # 印刷データの新規・リピート分類
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -62,6 +64,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
+        # --- Excel書き出し ---
         template_path = "printlist_form.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
@@ -91,6 +94,7 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
+        # --- Google Sheets書き出し ---
         creds = get_credentials()
         client = gspread.authorize(creds)
 
@@ -107,18 +111,21 @@ def index():
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
+        # === スタイルを適用 ===
+        apply_template_style(output_ws, start_row)
+
         sheet_map = {
-            "A3": "印刷データ",
-            "B3": "ファイル名",
-            "C3": "製造番号",
-            "C7": "印刷番号",
-            "D3": "製造日",
-            "E3": "会社名",
-            "E5": "製品名",
-            "G3": "製品種類",
-            "G6": "外装包材",
-            "G9": "表面印刷",
-            "L3": "製造個数"
+            "B3": "印刷データ",
+            "C3": "ファイル名",
+            "D3": "製造番号",
+            "D7": "印刷番号",
+            "E3": "製造日",
+            "F3": "会社名",
+            "F5": "製品名",
+            "H3": "製品種類",
+            "H6": "外装包材",
+            "H9": "表面印刷",
+            "M3": "製造個数"
         }
 
         for cell_a1, key in sheet_map.items():
@@ -136,7 +143,7 @@ def index():
 
     return render_template("index.html")
 
-# --- Google Apps Script 側の clearData を呼び出すエンドポイント ---
+# --- GAS経由のスプレッドシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
@@ -150,7 +157,7 @@ def clear_sheet():
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
 
-# --- Google Apps Script 側のテンプレートブロックコピーを呼び出すエンドポイント ---
+# --- GAS経由のテンプレートブロックコピー ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"

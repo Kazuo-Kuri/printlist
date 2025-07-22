@@ -1,16 +1,22 @@
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 import os
 import io
 import json
 import re
+import requests
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from style_writer import apply_template_style  # 追加
 
 app = Flask(__name__)
 
-# --- Google認証（Secret File 経由） ---
+# --- Flask Secret Key 読み込み ---
+with open("/etc/secrets/flask_secret_key", "r") as f:
+    app.secret_key = f.read().strip()
+
+# --- Google認証 ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -41,6 +47,7 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
+    # 印刷データの新規・リピート分類
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -57,6 +64,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
+        # --- Excel書き出し ---
         template_path = "printlist_form.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
@@ -86,6 +94,7 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
+        # --- Google Sheets書き出し ---
         creds = get_credentials()
         client = gspread.authorize(creds)
 
@@ -101,6 +110,9 @@ def index():
         template_range = template_ws.get_values("A1:N10")
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+
+        # === スタイルを適用 ===
+        apply_template_style(output_ws, start_row)
 
         sheet_map = {
             "A3": "印刷データ",
@@ -130,3 +142,34 @@ def index():
         )
 
     return render_template("index.html")
+
+# --- GAS経由のスプレッドシートクリア ---
+@app.route("/clear", methods=["POST"])
+def clear_sheet():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        if response.status_code == 200 and response.text.strip() == "CLEARED":
+            flash("スプレッドシートのデータをクリアしました。")
+        else:
+            flash("クリアに失敗しました：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
+# --- GAS経由のテンプレートブロックコピー ---
+@app.route("/copy", methods=["POST"])
+def copy_template_block():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
+            flash("テンプレートをコピーしました。")
+        else:
+            flash("コピーに失敗しました：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    app.run(debug=True)
