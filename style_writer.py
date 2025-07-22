@@ -38,7 +38,7 @@ def apply_template_style(ws, start_row):
     )
 
     # タイトル背景（例：A2:N2 → start_row+1）
-    format_cell_range(ws, f"A{start_row+1}:N{start_row+1}", green_bold)
+    format_cell_range(ws, f"A{start_row+1}:O{start_row+1}", green_bold)
 
     # C列（製造番号・印刷番号）背景
     format_cell_range(ws, f"C{start_row+3}:C{start_row+4}", blue_bold)
