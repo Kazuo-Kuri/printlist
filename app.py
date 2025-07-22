@@ -11,12 +11,9 @@ from oauth2client.service_account import ServiceAccountCredentials
 from style_writer import apply_template_style  # 追加
 
 app = Flask(__name__)
-
-# --- Flask Secret Key 読み込み ---
 with open("/etc/secrets/flask_secret_key", "r") as f:
     app.secret_key = f.read().strip()
 
-# --- Google認証 ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
 
 def get_credentials():
@@ -25,7 +22,6 @@ def get_credentials():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# --- テキスト抽出 ---
 def extract_data(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*([^\s)]+)",
@@ -47,16 +43,9 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
-    # 印刷データの新規・リピート分類
-    if "印刷データ（元）" in results:
-        raw = results.pop("印刷データ（元）")
-        results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
-    else:
-        results["印刷データ"] = ""
-
+    results["印刷データ"] = "リピート" if "従来の" in results.get("印刷データ（元）", "") else "新規"
     return results
 
-# --- メインエンドポイント ---
 @app.route("/", methods=["GET", "POST"])
 def index():
     extracted_data = {}
@@ -64,11 +53,10 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # --- Excel書き出し ---
-        template_path = "printlist_form.xlsx"
+        # --- Excel出力 ---
+        template_path = "印刷リストテンプレ.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
-
         cell_map = {
             "製造日": "B2",
             "製造番号": "E1",
@@ -76,7 +64,6 @@ def index():
             "会社名": "B3",
             "製品名": "B4"
         }
-
         for key, cell in cell_map.items():
             if key in extracted_data:
                 target_cell = ws[cell]
@@ -84,8 +71,7 @@ def index():
                     for merged_range in ws.merged_cells.ranges:
                         if cell in merged_range:
                             min_col, min_row, _, _ = range_boundaries(str(merged_range))
-                            top_left_cell = ws.cell(row=min_row, column=min_col)
-                            top_left_cell.value = extracted_data[key]
+                            ws.cell(row=min_row, column=min_col).value = extracted_data[key]
                             break
                 else:
                     ws[cell] = extracted_data[key]
@@ -94,10 +80,9 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # --- Google Sheets書き出し ---
+        # --- Google Sheets 出力 ---
         creds = get_credentials()
         client = gspread.authorize(creds)
-
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
         template_ws = ss.worksheet("sheet1")
@@ -107,15 +92,17 @@ def index():
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        template_range = template_ws.get_values("A1:N10")
+        # テンプレートブロックコピー（A1:O10）
+        template_range = template_ws.get_values("A1:O10")
         for i, row in enumerate(template_range):
-            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+            output_ws.update(f"A{start_row + i}:O{start_row + i}", [row])
 
-        # === スタイルを適用 ===
+        # スタイル＆ドロップダウン反映
         apply_template_style(output_ws, start_row)
 
+        # セルへのデータ書き込み
         sheet_map = {
-            "A3": "印刷データ",
+            "A3": "",  # ステータス空欄
             "B3": "ファイル名",
             "C3": "製造番号",
             "C7": "印刷番号",
@@ -125,14 +112,15 @@ def index():
             "G3": "製品種類",
             "G6": "外装包材",
             "G9": "表面印刷",
-            "L3": "製造個数"
+            "L3": "製造個数",
+            "O3": "",  # 担当：未設定
         }
 
         for cell_a1, key in sheet_map.items():
-            if key in extracted_data:
-                row = int(cell_a1[1:])
-                col = ord(cell_a1[0].upper()) - 65 + 1
-                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
+            val = extracted_data.get(key, "") if key else ""
+            row = int(cell_a1[1:])
+            col = ord(cell_a1[0].upper()) - 65 + 1
+            output_ws.update_cell(start_row + (row - 1), col, val)
 
         return send_file(
             excel_stream,
@@ -140,33 +128,24 @@ def index():
             download_name="output.xlsx",
             mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
     return render_template("index.html")
 
-# --- GAS経由のスプレッドシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
-        if response.status_code == 200 and response.text.strip() == "CLEARED":
-            flash("スプレッドシートのデータをクリアしました。")
-        else:
-            flash("クリアに失敗しました：" + response.text)
+        flash("スプレッドシートのデータをクリアしました。" if response.status_code == 200 and response.text.strip() == "CLEARED" else "クリアに失敗：" + response.text)
     except Exception as e:
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
 
-# --- GAS経由のテンプレートブロックコピー ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
-        if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
-            flash("テンプレートをコピーしました。")
-        else:
-            flash("コピーに失敗しました：" + response.text)
+        flash("テンプレートをコピーしました。" if response.status_code == 200 and "TEMPLATE COPIED" in response.text else "コピーに失敗：" + response.text)
     except Exception as e:
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
