@@ -1,35 +1,33 @@
+import gspread
 from gspread_formatting import (
-    CellFormat, Color, TextFormat,
-    set_data_validation_for_cell_range, DataValidationRule, BooleanCondition
+    DataValidationRule,
+    BooleanCondition,
+    set_data_validation_for_cell_range
 )
 
-# ステータス列と担当列のリスト候補
+# ドロップダウン候補
 STATUS_LIST = ["", "仕掛中", "完了"]
-TANTO_LIST = ["未設定", "小島", "小林", "北裏", "岩﨑", "小野"]
+TANTOU_LIST = ["未設定", "小島", "小林", "北裏", "岩﨑", "小野"]
 
-def add_dropdown(ws, cell_range, options):
+def set_dropdown_validation(worksheet, cell, values):
+    """
+    指定したセルにドロップダウンを設定する。
+    """
     rule = DataValidationRule(
-        condition=BooleanCondition('ONE_OF_LIST', options),
-        showCustomUi=True
+        condition=BooleanCondition('ONE_OF_LIST', values),
+        showCustomUi=True,
+        strict=True
     )
-    set_data_validation_for_cell_range(ws, cell_range, rule)
+    set_data_validation_for_cell_range(worksheet, cell, rule)
 
-def apply_template_style(ws, start_row):
-    # 背景・太字・中央寄せスタイル
-    green_bold = CellFormat(
-        backgroundColor=Color(0.85, 0.93, 0.81),
-        textFormat=TextFormat(bold=True),
-        horizontalAlignment='CENTER'
-    )
-    blue_bold = CellFormat(
-        backgroundColor=Color(0.85, 0.92, 0.98),
-        textFormat=TextFormat(bold=True),
-        horizontalAlignment='CENTER'
-    )
+def apply_validations(sheet, block_start_row):
+    """
+    ドロップダウンを特定の1ブロック（A1:N10）の相対位置に適用する。
+    block_start_row: ブロックの開始行（1ブロック目なら1、2ブロック目なら11、以降 +10）
+    """
+    # ブロック内の相対位置 A6 → ステータス, O6 → 担当
+    status_cell = f"A{block_start_row + 5}"  # A6相当
+    tantou_cell = f"O{block_start_row + 5}"  # O6相当
 
-    # ステータス（A列）・担当（O列）の範囲設定（ブロック内10行分）
-    status_range = f"A{start_row + 2}:A{start_row + 10}"
-    tanto_range = f"O{start_row + 2}:O{start_row + 10}"
-
-    add_dropdown(ws, status_range, STATUS_LIST)
-    add_dropdown(ws, tanto_range, TANTO_LIST)
+    set_dropdown_validation(sheet, status_cell, STATUS_LIST)
+    set_dropdown_validation(sheet, tantou_cell, TANTOU_LIST)
