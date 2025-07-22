@@ -153,7 +153,7 @@ def clear_sheet():
 # --- Google Apps Script 側のテンプレートブロックコピーを呼び出すエンドポイント ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
         if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
