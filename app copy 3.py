@@ -8,7 +8,6 @@ from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from gspread_formatting import get_user_entered_format, set_user_entered_format
 
 app = Flask(__name__)
 
@@ -55,36 +54,6 @@ def extract_data(text):
 
     return results
 
-# --- スタイルとデータを反映する関数 ---
-def apply_styles_and_data(worksheet, extracted_data, start_row):
-    for row_offset in range(10):
-        for col_offset in range(14):  # A〜N = 14列
-            source_cell = chr(65 + col_offset) + str(1 + row_offset)
-            target_cell = chr(65 + col_offset) + str(start_row + row_offset)
-            fmt = get_user_entered_format(worksheet, source_cell)
-            set_user_entered_format(worksheet, target_cell, fmt)
-
-    # データの書き込み
-    sheet_map = {
-        "A3": "印刷データ",
-        "B3": "ファイル名",
-        "C3": "製造番号",
-        "C7": "印刷番号",
-        "D3": "製造日",
-        "E3": "会社名",
-        "E5": "製品名",
-        "G3": "製品種類",
-        "G6": "外装包材",
-        "G9": "表面印刷",
-        "L3": "製造個数"
-    }
-
-    for cell_a1, key in sheet_map.items():
-        if key in extracted_data:
-            col = ord(cell_a1[0].upper()) - 65
-            row = int(cell_a1[1:]) - 1
-            worksheet.update_cell(start_row + row, col + 1, extracted_data[key])
-
 # --- メインエンドポイント ---
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -128,12 +97,35 @@ def index():
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
         template_ws = ss.worksheet("sheet1")
+        output_ws = ss.worksheet("printlist")
 
-        existing_rows = len(template_ws.get_all_values())
+        existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        apply_styles_and_data(template_ws, extracted_data, start_row)
+        template_range = template_ws.get_values("A1:N10")
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+
+        sheet_map = {
+            "A3": "印刷データ",
+            "B3": "ファイル名",
+            "C3": "製造番号",
+            "C7": "印刷番号",
+            "D3": "製造日",
+            "E3": "会社名",
+            "E5": "製品名",
+            "G3": "製品種類",
+            "G6": "外装包材",
+            "G9": "表面印刷",
+            "L3": "製造個数"
+        }
+
+        for cell_a1, key in sheet_map.items():
+            if key in extracted_data:
+                row = int(cell_a1[1:])
+                col = ord(cell_a1[0].upper()) - 65 + 1
+                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
 
         return send_file(
             excel_stream,
@@ -144,6 +136,7 @@ def index():
 
     return render_template("index.html")
 
+# --- Google Apps Script 側の clearData を呼び出すエンドポイント ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
@@ -157,6 +150,7 @@ def clear_sheet():
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
 
+# --- Google Apps Script 側のテンプレートブロックコピーを呼び出すエンドポイント ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
