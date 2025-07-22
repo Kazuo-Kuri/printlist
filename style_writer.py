@@ -1,33 +1,61 @@
-import gspread
-from gspread_formatting import (
-    DataValidationRule,
-    BooleanCondition,
-    set_data_validation_for_cell_range
-)
+from gspread_formatting import *
 
-# ドロップダウン候補
-STATUS_LIST = ["", "仕掛中", "完了"]
-TANTOU_LIST = ["未設定", "小島", "小林", "北裏", "岩﨑", "小野"]
+# チェックボックスの挿入（TRUE/FALSE 書式）
+def add_checkboxes(ws, cell_ranges):
+    if isinstance(cell_ranges, str):
+        cell_ranges = [cell_ranges]
+    for rng in cell_ranges:
+        set_data_validation_for_cell_range(
+            ws, rng,
+            DataValidationRule(
+                BooleanCondition('BOOLEAN'),
+                showCustomUi=True
+            )
+        )
 
-def set_dropdown_validation(worksheet, cell, values):
-    """
-    指定したセルにドロップダウンを設定する。
-    """
-    rule = DataValidationRule(
-        condition=BooleanCondition('ONE_OF_LIST', values),
-        showCustomUi=True,
-        strict=True
+# ドロップダウンリストの挿入（担当列）
+def add_dropdown(ws, cell_range, options):
+    set_data_validation_for_cell_range(
+        ws, cell_range,
+        DataValidationRule(
+            BooleanCondition('ONE_OF_LIST', options),
+            showCustomUi=True
+        )
     )
-    set_data_validation_for_cell_range(worksheet, cell, rule)
 
-def apply_validations(sheet, block_start_row):
-    """
-    ドロップダウンを特定の1ブロック（A1:N10）の相対位置に適用する。
-    block_start_row: ブロックの開始行（1ブロック目なら1、2ブロック目なら11、以降 +10）
-    """
-    # ブロック内の相対位置 A6 → ステータス, O6 → 担当
-    status_cell = f"A{block_start_row + 5}"  # A6相当
-    tantou_cell = f"O{block_start_row + 5}"  # O6相当
+# スタイル定義（色・太字・中央寄せなど）
+def apply_template_style(ws, start_row):
+    # === セル背景色 + 太字 ===
+    green_bold = CellFormat(
+        backgroundColor=Color(0.85, 0.93, 0.81),
+        textFormat=TextFormat(bold=True),
+        horizontalAlignment='CENTER'
+    )
+    blue_bold = CellFormat(
+        backgroundColor=Color(0.85, 0.92, 0.98),
+        textFormat=TextFormat(bold=True),
+        horizontalAlignment='CENTER'
+    )
 
-    set_dropdown_validation(sheet, status_cell, STATUS_LIST)
-    set_dropdown_validation(sheet, tantou_cell, TANTOU_LIST)
+    # タイトル背景（例：A2:N2 → start_row+1）
+    format_cell_range(ws, f"A{start_row+1}:N{start_row+1}", green_bold)
+
+    # C列（製造番号・印刷番号）背景
+    format_cell_range(ws, f"C{start_row+3}:C{start_row+4}", blue_bold)
+
+    # === チェックボックス挿入 ===
+    checkbox_ranges = [
+        f"G{start_row+3}", f"G{start_row+6}", f"G{start_row+9}",  # フック紙・フィルム色・リボン色
+        f"H{start_row+3}",  # 整合性
+        f"I{start_row+3}", f"I{start_row+6}",  # フィルム継ぎ有無
+        f"K{start_row+3}", f"K{start_row+6}",  # フィルム継ぎ確認
+        f"M{start_row+3}"  # 数量用
+    ]
+    add_checkboxes(ws, checkbox_ranges)
+
+    # === 担当列ドロップダウン ===
+    add_dropdown(ws, f"N{start_row+3}", ["未設定", "小島", "小林", "北裏" , "岩﨑", "小野"])
+
+    # === その他：必要に応じて罫線や結合セル追加（高度処理）
+    # ここでは gspread-formatting では未対応なため割愛
+    # 結合セルや罫線の細部は Sheets UI 側テンプレート維持で対応を推奨
