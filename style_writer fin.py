@@ -38,7 +38,7 @@ def apply_template_style(ws, start_row):
     )
 
     # タイトル背景（例：A2:N2 → start_row+1）
-    format_cell_range(ws, f"A{start_row+1}:N{start_row+1}", green_bold)
+    format_cell_range(ws, f"A{start_row+1}:O{start_row+1}", green_bold)
 
     # C列（製造番号・印刷番号）背景
     format_cell_range(ws, f"C{start_row+3}:C{start_row+4}", blue_bold)
@@ -54,7 +54,7 @@ def apply_template_style(ws, start_row):
     add_checkboxes(ws, checkbox_ranges)
 
     # === 担当列ドロップダウン ===
-    add_dropdown(ws, f"N{start_row+3}", ["未設定", "小島", "小林", "北裏" , "岩﨑", "小野"])
+    add_dropdown(ws, f"O{start_row+3}", ["未設定", "小島", "小林", "北裏" , "岩﨑", "小野"])
 
     # === その他：必要に応じて罫線や結合セル追加（高度処理）
     # ここでは gspread-formatting では未対応なため割愛
