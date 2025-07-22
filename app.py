@@ -8,7 +8,6 @@ from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from style_writer import apply_validations
 
 app = Flask(__name__)
 
@@ -16,15 +15,16 @@ app = Flask(__name__)
 with open("/etc/secrets/flask_secret_key", "r") as f:
     app.secret_key = f.read().strip()
 
-# --- Google認証 ---
+# --- Google認証（Secret File 経由） ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
+
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
         credentials_dict = json.load(f)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# --- データ抽出 ---
+# --- テキスト抽出 ---
 def extract_data(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*([^\s)]+)",
@@ -46,7 +46,6 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
-    # 印刷データ → 新規／リピート変換
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -63,8 +62,7 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # Excelテンプレート書き出し
-        template_path = "印刷リストテンプレ1_dv追加済.xlsx"
+        template_path = "printlist_form.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
 
@@ -89,29 +87,26 @@ def index():
                 else:
                     ws[cell] = extracted_data[key]
 
-        # Excel出力
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # Google Sheets に書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
+
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
+        template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # テンプレートから取得
-        template_ws = ss.worksheet("テンプレート")
         template_range = template_ws.get_values("A1:N10")
         for i, row in enumerate(template_range):
             output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
-        # 抽出結果をブロック内の対応セルに入力
         sheet_map = {
             "A3": "印刷データ",
             "B3": "ファイル名",
@@ -132,9 +127,6 @@ def index():
                 col = ord(cell_a1[0].upper()) - 65 + 1
                 output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
 
-        # バリデーション適用（A6, O6のみ）
-        apply_validations(output_ws, start_row)
-
         return send_file(
             excel_stream,
             as_attachment=True,
@@ -144,7 +136,7 @@ def index():
 
     return render_template("index.html")
 
-# --- GASによるシートクリア ---
+# --- Google Apps Script 側の clearData を呼び出すエンドポイント ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
@@ -154,6 +146,20 @@ def clear_sheet():
             flash("スプレッドシートのデータをクリアしました。")
         else:
             flash("クリアに失敗しました：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
+# --- Google Apps Script 側のテンプレートブロックコピーを呼び出すエンドポイント ---
+@app.route("/copy", methods=["POST"])
+def copy_template_block():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
+            flash("テンプレートをコピーしました。")
+        else:
+            flash("コピーに失敗しました：" + response.text)
     except Exception as e:
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
