@@ -109,7 +109,7 @@ def index():
 
         template_range = template_ws.get_values("A1:N10")
         for i, row in enumerate(template_range):
-            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+            output_ws.update(f"A{start_row + i}:O{start_row + i}", [row])
 
         # === スタイルを適用 ===
         apply_template_style(output_ws, start_row)
