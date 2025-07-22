@@ -1,150 +1,164 @@
+from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 import os
+import io
 import json
+import re
+import requests
+from openpyxl import load_workbook
+from openpyxl.utils import range_boundaries
 import gspread
-from flask import Flask, request, jsonify, render_template_string
 from oauth2client.service_account import ServiceAccountCredentials
 from style_writer import apply_validations
 
-# Google認証ファイルのパス
-CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-
-# Googleスプレッドシート設定
-SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
-SHEET_NAME = "printlist"
-
-# Flask初期化
 app = Flask(__name__)
 
-# Google Sheets 認証とクライアント取得
-def get_gspread_client():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIAL_FILE_PATH, scope)
-    client = gspread.authorize(creds)
-    return client
+# --- Flask Secret Key 読み込み ---
+with open("/etc/secrets/flask_secret_key", "r") as f:
+    app.secret_key = f.read().strip()
 
-# データ抽出ロジック（例：シンプルに項目名ベース）
-def parse_text(text):
-    result = {
-        "製造番号": "",
-        "印刷番号": "",
-        "製造日": "",
-        "会社名": "",
-        "製品名": "",
-        "製品種類": "",
-        "外装包材": "",
-        "表面印刷": "",
-        "製造個数": ""
+# --- Google認証 ---
+CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
+
+def get_credentials():
+    with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
+        credentials_dict = json.load(f)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+
+# --- テキスト抽出 ---
+def extract_data(text):
+    patterns = {
+        "製造番号": r"製造番号[:：]\s*([^\s)]+)",
+        "印刷番号": r"印刷番号[:：]\s*([^\s\n]+)",
+        "製造日": r"製造日[:：]\s*(.+?)(?:\n|$)",
+        "会社名": r"会社名[:：]\s*(.+?)(?:\n|$)",
+        "製品名": r"製品名[:：]\s*(.+?)(?:\n|$)",
+        "製品種類": r"製品種類[:：]\s*(.+?)(?:\n|$)",
+        "外装包材": r"外装包材[:：]\s*(.+?)(?:\n|$)",
+        "表面印刷": r"表面印刷[:：][^\n]+.*?表面印刷[:：]\s*(.+?)(?:\n|$)",
+        "製造個数": r"製造個数[:：]\s*(.+?)(?:\n|$)",
+        "ファイル名": r"<印刷用データ\(\.FMT\)>.*?ファイル名[:：]\s*(.+?)(?:\n|$)",
+        "印刷データ（元）": r"印刷データ[:：]\s*(.+?)(?:\n|$)"
     }
 
-    for line in text.splitlines():
-        if "製造番号" in line:
-            result["製造番号"] = line.split("：")[-1].strip()
-        elif "印刷番号" in line:
-            result["印刷番号"] = line.split("：")[-1].strip()
-        elif "製造日" in line:
-            result["製造日"] = line.split("：")[-1].strip()
-        elif "会社名" in line:
-            result["会社名"] = line.split("：")[-1].strip()
-        elif "製品名" in line:
-            result["製品名"] = line.split("：")[-1].strip()
-        elif "製品種類" in line:
-            result["製品種類"] = line.split("：")[-1].strip()
-        elif "外装包材" in line:
-            result["外装包材"] = line.split("：")[-1].strip()
-        elif "表面印刷：" in line:
-            result["表面印刷"] = line.split("：")[-1].strip()
-        elif "製造個数" in line:
-            result["製造個数"] = line.split("：")[-1].strip()
+    results = {}
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.DOTALL)
+        if match:
+            results[key] = match.group(1).strip()
 
-    return result
+    if "印刷データ（元）" in results:
+        raw = results.pop("印刷データ（元）")
+        results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
+    else:
+        results["印刷データ"] = ""
 
-# Google Sheets に書き込む
-def write_to_sheet(data):
-    client = get_gspread_client()
-    sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+    return results
 
-    # 次の空ブロックの開始行を探す（A列の空白） ※A列がステータス列
-    values = sheet.col_values(1)
-    start_row = len(values) + 1 if values else 3
-    if start_row < 3:
-        start_row = 3
-
-    apply_validations(sheet)
-
-    # 各セルにデータを反映（A列〜O列）
-    sheet.update(f"A{start_row}", [[""]])  # ステータス空欄
-    sheet.update(f"B{start_row}", [["ファイル名"]])
-    sheet.update(f"C{start_row}", [[data["製造番号"]]])
-    sheet.update(f"C{start_row + 4}", [[data["印刷番号"]]])
-    sheet.update(f"D{start_row}", [[data["製造日"]]])
-    sheet.update(f"E{start_row}", [[data["会社名"]]])
-    sheet.update(f"E{start_row + 2}", [[data["製品名"]]])
-    sheet.update(f"G{start_row}", [[data["製品種類"]]])
-    sheet.update(f"G{start_row + 3}", [[data["外装包材"]]])
-    sheet.update(f"G{start_row + 6}", [[data["表面印刷"]]])
-    sheet.update(f"L{start_row}", [[data["製造個数"]]])
-    sheet.update(f"O{start_row}", [["未設定"]])  # 担当
-
-@app.route("/", methods=["GET"])
+# --- メイン画面 ---
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>テキスト抽出アプリ</title>
-        <script>
-            function clearText() {
-                document.getElementById("inputText").value = "";
-            }
+    extracted_data = {}
+    if request.method == "POST":
+        text = request.form["text"]
+        extracted_data = extract_data(text)
 
-            function clearData() {
-                if (confirm("スプレッドシートの全データを削除してもよろしいですか？")) {
-                    fetch("/clear", {
-                        method: "POST"
-                    })
-                    .then(response => response.text())
-                    .then(data => alert("結果: " + data))
-                    .catch(error => alert("エラー: " + error));
-                }
-            }
-        </script>
-    </head>
-    <body>
-        <h1>テキストから情報抽出</h1>
-        <form method="POST" action="/upload_text">
-            <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
-            <button type="submit">送信</button>
-            <button type="button" onclick="clearText()">クリア</button>
-            <button type="button" onclick="clearData()">データクリア</button>
-        </form>
-    </body>
-    </html>
-    """)
+        template_path = "printlist_form.xlsx"
+        wb = load_workbook(template_path)
+        ws = wb.active
 
-@app.route("/upload_text", methods=["POST"])
-def upload_text():
-    try:
-        text = request.form.get("text", "")
-        parsed_data = parse_text(text)
-        write_to_sheet(parsed_data)
-        return "データを書き込みました。", 200
-    except Exception as e:
-        return f"エラー: {str(e)}", 500
+        cell_map = {
+            "製造日": "B2",
+            "製造番号": "E1",
+            "印刷番号": "E2",
+            "会社名": "B3",
+            "製品名": "B4"
+        }
 
+        for key, cell in cell_map.items():
+            if key in extracted_data:
+                target_cell = ws[cell]
+                if hasattr(target_cell, "merged_cells") or type(target_cell).__name__ == "MergedCell":
+                    for merged_range in ws.merged_cells.ranges:
+                        if cell in merged_range:
+                            min_col, min_row, _, _ = range_boundaries(str(merged_range))
+                            top_left_cell = ws.cell(row=min_row, column=min_col)
+                            top_left_cell.value = extracted_data[key]
+                            break
+                else:
+                    ws[cell] = extracted_data[key]
+
+        excel_stream = io.BytesIO()
+        wb.save(excel_stream)
+        excel_stream.seek(0)
+
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
+        ss = client.open_by_key(SPREADSHEET_ID)
+        output_ws = ss.worksheet("printlist")
+
+        # 次ブロック行計算
+        existing_rows = len(output_ws.get_all_values())
+        block_index = max((existing_rows - 2) // 10, 0)
+        start_row = block_index * 10 + 1
+
+        # ドロップダウン設定
+        apply_validations(output_ws)
+
+        # 各セルへ書き出し
+        sheet_map = {
+            "A3": "印刷データ",
+            "B3": "ファイル名",
+            "C3": "製造番号",
+            "C7": "印刷番号",
+            "D3": "製造日",
+            "E3": "会社名",
+            "E5": "製品名",
+            "G3": "製品種類",
+            "G6": "外装包材",
+            "G9": "表面印刷",
+            "L3": "製造個数",
+            "O3": "担当"
+        }
+
+        for cell_a1, key in sheet_map.items():
+            if key in extracted_data or key == "O3":
+                row = int(cell_a1[1:])
+                col = ord(cell_a1[0].upper()) - 65 + 1
+                value = extracted_data.get(key, "未設定" if key == "O3" else "")
+                output_ws.update_cell(start_row + (row - 1), col, value)
+
+        return send_file(
+            excel_stream,
+            as_attachment=True,
+            download_name="output.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    return render_template("index.html")
+
+# --- GAS 連携（クリア） ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
     try:
-        client = get_gspread_client()
-        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
-        sheet.batch_clear(["A3:O1000"])  # 実際の必要行数に応じて調整可能
-        return "シートのデータを削除しました。", 200
+        response = requests.post(GAS_ENDPOINT)
+        flash("クリア成功" if response.text.strip() == "CLEARED" else "失敗：" + response.text)
     except Exception as e:
-        return f"エラー: {str(e)}", 500
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
 
-# 実行用
+# --- GAS 連携（テンプレートコピー） ---
+@app.route("/copy", methods=["POST"])
+def copy_template_block():
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
+    try:
+        response = requests.post(GAS_ENDPOINT)
+        flash("コピー成功" if "TEMPLATE COPIED" in response.text else "失敗：" + response.text)
+    except Exception as e:
+        flash("通信エラー：" + str(e))
+    return redirect(url_for("index"))
+
 if __name__ == "__main__":
-    app.run(debug=True, port=10000)
+    app.run(debug=True)
