@@ -5,30 +5,29 @@ from gspread_formatting import (
     set_data_validation_for_cell_range
 )
 
-# ドロップダウン候補（要件に従って列挙）
+# ドロップダウン候補
 STATUS_LIST = ["", "仕掛中", "完了"]
 TANTOU_LIST = ["未設定", "小島", "小林", "北裏", "岩﨑", "小野"]
 
-def set_dropdown_validation(worksheet, col_letter, row_start, row_end, values):
+def set_dropdown_validation(worksheet, cell, values):
     """
-    指定した列の範囲に対して、リスト形式のデータ検証（ドロップダウン）を設定。
+    指定したセルにドロップダウンを設定する。
     """
-    cell_range = f"{col_letter}{row_start}:{col_letter}{row_end}"
     rule = DataValidationRule(
         condition=BooleanCondition('ONE_OF_LIST', values),
         showCustomUi=True,
         strict=True
     )
-    set_data_validation_for_cell_range(worksheet, cell_range, rule)
+    set_data_validation_for_cell_range(worksheet, cell, rule)
 
-def apply_validations(sheet):
+def apply_validations(sheet, block_start_row):
     """
-    スプレッドシートの対象列に対して、ドロップダウンを設定する。
+    ドロップダウンを特定の1ブロック（A1:N10）の相対位置に適用する。
+    block_start_row: ブロックの開始行（1ブロック目なら1、2ブロック目なら11、以降 +10）
     """
-    max_rows = 1000  # 想定される最大データ行数（必要に応じて変更）
+    # ブロック内の相対位置 A6 → ステータス, O6 → 担当
+    status_cell = f"A{block_start_row + 5}"  # A6相当
+    tantou_cell = f"O{block_start_row + 5}"  # O6相当
 
-    # ステータス列（A列） → A3:A1000 に設定
-    set_dropdown_validation(sheet, "A", 3, max_rows, STATUS_LIST)
-
-    # 担当列（O列） → O3:O1000 に設定（OはA〜Z→AA〜列の15番目）
-    set_dropdown_validation(sheet, "O", 3, max_rows, TANTOU_LIST)
+    set_dropdown_validation(sheet, status_cell, STATUS_LIST)
+    set_dropdown_validation(sheet, tantou_cell, TANTOU_LIST)

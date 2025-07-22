@@ -18,14 +18,13 @@ with open("/etc/secrets/flask_secret_key", "r") as f:
 
 # --- Google認証 ---
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
-
 def get_credentials():
     with open(CREDENTIAL_FILE_PATH, "r", encoding="utf-8") as f:
         credentials_dict = json.load(f)
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     return ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
 
-# --- テキスト抽出 ---
+# --- データ抽出 ---
 def extract_data(text):
     patterns = {
         "製造番号": r"製造番号[:：]\s*([^\s)]+)",
@@ -47,6 +46,7 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
+    # 印刷データ → 新規／リピート変換
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -55,7 +55,7 @@ def extract_data(text):
 
     return results
 
-# --- メイン画面 ---
+# --- メインエンドポイント ---
 @app.route("/", methods=["GET", "POST"])
 def index():
     extracted_data = {}
@@ -63,7 +63,8 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        template_path = "printlist_form.xlsx"
+        # Excelテンプレート書き出し
+        template_path = "印刷リストテンプレ1_dv追加済.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
 
@@ -88,25 +89,29 @@ def index():
                 else:
                     ws[cell] = extracted_data[key]
 
+        # Excel出力
         excel_stream = io.BytesIO()
         wb.save(excel_stream)
         excel_stream.seek(0)
 
+        # Google Sheets に書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
         output_ws = ss.worksheet("printlist")
 
-        # 次ブロック行計算
         existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # ドロップダウン設定
-        apply_validations(output_ws)
+        # テンプレートから取得
+        template_ws = ss.worksheet("テンプレート")
+        template_range = template_ws.get_values("A1:N10")
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
 
-        # 各セルへ書き出し
+        # 抽出結果をブロック内の対応セルに入力
         sheet_map = {
             "A3": "印刷データ",
             "B3": "ファイル名",
@@ -118,16 +123,17 @@ def index():
             "G3": "製品種類",
             "G6": "外装包材",
             "G9": "表面印刷",
-            "L3": "製造個数",
-            "O3": "担当"
+            "L3": "製造個数"
         }
 
         for cell_a1, key in sheet_map.items():
-            if key in extracted_data or key == "O3":
+            if key in extracted_data:
                 row = int(cell_a1[1:])
                 col = ord(cell_a1[0].upper()) - 65 + 1
-                value = extracted_data.get(key, "未設定" if key == "O3" else "")
-                output_ws.update_cell(start_row + (row - 1), col, value)
+                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
+
+        # バリデーション適用（A6, O6のみ）
+        apply_validations(output_ws, start_row)
 
         return send_file(
             excel_stream,
@@ -138,24 +144,16 @@ def index():
 
     return render_template("index.html")
 
-# --- GAS 連携（クリア） ---
+# --- GASによるシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
-        flash("クリア成功" if response.text.strip() == "CLEARED" else "失敗：" + response.text)
-    except Exception as e:
-        flash("通信エラー：" + str(e))
-    return redirect(url_for("index"))
-
-# --- GAS 連携（テンプレートコピー） ---
-@app.route("/copy", methods=["POST"])
-def copy_template_block():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
-    try:
-        response = requests.post(GAS_ENDPOINT)
-        flash("コピー成功" if "TEMPLATE COPIED" in response.text else "失敗：" + response.text)
+        if response.status_code == 200 and response.text.strip() == "CLEARED":
+            flash("スプレッドシートのデータをクリアしました。")
+        else:
+            flash("クリアに失敗しました：" + response.text)
     except Exception as e:
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
