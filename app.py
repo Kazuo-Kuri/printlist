@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, render_template, request, send_file, flash, redirect, url_for
 import os
 import io
@@ -9,8 +8,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from gspread_formatting import *
-from style_writer import apply_template_style
+from style_writer import apply_template_style  # 追加
 
 app = Flask(__name__)
 
@@ -49,6 +47,7 @@ def extract_data(text):
         if match:
             results[key] = match.group(1).strip()
 
+    # 印刷データの新規・リピート分類
     if "印刷データ（元）" in results:
         raw = results.pop("印刷データ（元）")
         results["印刷データ"] = "リピート" if "従来の" in raw else "新規"
@@ -66,8 +65,10 @@ def index():
         extracted_data = extract_data(text)
 
         # --- Excel書き出し ---
-        wb = load_workbook("印刷リストテンプレ.xlsx")
+        template_path = "printlist_form.xlsx"
+        wb = load_workbook(template_path)
         ws = wb.active
+
         cell_map = {
             "製造日": "B2",
             "製造番号": "E1",
@@ -75,6 +76,7 @@ def index():
             "会社名": "B3",
             "製品名": "B4"
         }
+
         for key, cell in cell_map.items():
             if key in extracted_data:
                 target_cell = ws[cell]
@@ -95,18 +97,25 @@ def index():
         # --- Google Sheets書き出し ---
         creds = get_credentials()
         client = gspread.authorize(creds)
+
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
-        ws = ss.worksheet("printlist")
+        template_ws = ss.worksheet("sheet1")
+        output_ws = ss.worksheet("printlist")
 
-        existing_rows = len(ws.get_all_values())
+        existing_rows = len(output_ws.get_all_values())
         block_index = max((existing_rows - 2) // 10, 0)
         start_row = block_index * 10 + 1
 
-        # スタイル適用
-        apply_template_style(ws, start_row)
+        template_range = template_ws.get_values("A1:N10")
+        for i, row in enumerate(template_range):
+            output_ws.update(f"A{start_row + i}:N{start_row + i}", [row])
+
+        # === スタイルを適用 ===
+        apply_template_style(output_ws, start_row)
 
         sheet_map = {
+            "A3": "印刷データ",
             "B3": "ファイル名",
             "C3": "製造番号",
             "C7": "印刷番号",
@@ -116,14 +125,14 @@ def index():
             "G3": "製品種類",
             "G6": "外装包材",
             "G9": "表面印刷",
-            "L3": "製造個数",
-            "A3": "印刷データ"
+            "L3": "製造個数"
         }
+
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
                 row = int(cell_a1[1:])
                 col = ord(cell_a1[0].upper()) - 65 + 1
-                ws.update_cell(start_row + (row - 1), col, extracted_data[key])
+                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
 
         return send_file(
             excel_stream,
@@ -134,10 +143,10 @@ def index():
 
     return render_template("index.html")
 
-# --- GASクリア/コピー ---
+# --- GAS経由のスプレッドシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/.../exec"
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
         if response.status_code == 200 and response.text.strip() == "CLEARED":
@@ -148,9 +157,10 @@ def clear_sheet():
         flash("通信エラー：" + str(e))
     return redirect(url_for("index"))
 
+# --- GAS経由のテンプレートブロックコピー ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/.../exec"
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
         if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
