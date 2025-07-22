@@ -1,9 +1,9 @@
 import os
 import json
 import gspread
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 from oauth2client.service_account import ServiceAccountCredentials
-from style_writer import apply_template_style
+from style_writer import apply_validations
 
 # Google認証ファイルのパス
 CREDENTIAL_FILE_PATH = "/etc/secrets/credentials.json"
@@ -15,7 +15,7 @@ SHEET_NAME = "printlist"
 # Flask初期化
 app = Flask(__name__)
 
-# Google Sheets クライアント取得
+# Google Sheets 認証とクライアント取得
 def get_gspread_client():
     scope = [
         "https://spreadsheets.google.com/feeds",
@@ -25,7 +25,7 @@ def get_gspread_client():
     client = gspread.authorize(creds)
     return client
 
-# テキストからデータを抽出
+# データ抽出ロジック（例：シンプルに項目名ベース）
 def parse_text(text):
     result = {
         "製造番号": "",
@@ -66,16 +66,15 @@ def write_to_sheet(data):
     client = get_gspread_client()
     sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
 
-    # A列（ステータス列）を基に次の空きブロック行を探す
+    # 次の空ブロックの開始行を探す（A列の空白） ※A列がステータス列
     values = sheet.col_values(1)
     start_row = len(values) + 1 if values else 3
     if start_row < 3:
         start_row = 3
 
-    # スタイル適用（テンプレート反映）
-    apply_template_style(sheet, start_row)
+    apply_validations(sheet)
 
-    # 各セルにデータ反映
+    # 各セルにデータを反映（A列〜O列）
     sheet.update(f"A{start_row}", [[""]])  # ステータス空欄
     sheet.update(f"B{start_row}", [["ファイル名"]])
     sheet.update(f"C{start_row}", [[data["製造番号"]]])
@@ -89,30 +88,63 @@ def write_to_sheet(data):
     sheet.update(f"L{start_row}", [[data["製造個数"]]])
     sheet.update(f"O{start_row}", [["未設定"]])  # 担当
 
-# ヘルスチェック
 @app.route("/", methods=["GET"])
-def health_check():
-    return "OK", 200
+def index():
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>テキスト抽出アプリ</title>
+        <script>
+            function clearText() {
+                document.getElementById("inputText").value = "";
+            }
 
-# テキスト入力エンドポイント
-@app.route("/submit", methods=["POST"])
-def submit_text():
-    if not request.is_json:
-        return jsonify({"error": "JSON形式で送信してください"}), 400
+            function clearData() {
+                if (confirm("スプレッドシートの全データを削除してもよろしいですか？")) {
+                    fetch("/clear", {
+                        method: "POST"
+                    })
+                    .then(response => response.text())
+                    .then(data => alert("結果: " + data))
+                    .catch(error => alert("エラー: " + error));
+                }
+            }
+        </script>
+    </head>
+    <body>
+        <h1>テキストから情報抽出</h1>
+        <form method="POST" action="/upload_text">
+            <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
+            <button type="submit">送信</button>
+            <button type="button" onclick="clearText()">クリア</button>
+            <button type="button" onclick="clearData()">データクリア</button>
+        </form>
+    </body>
+    </html>
+    """)
 
-    data = request.get_json()
-    text = data.get("text", "")
-
-    if not text.strip():
-        return jsonify({"error": "テキストが空です"}), 400
-
+@app.route("/upload_text", methods=["POST"])
+def upload_text():
     try:
+        text = request.form.get("text", "")
         parsed_data = parse_text(text)
         write_to_sheet(parsed_data)
-        return jsonify({"message": "データを登録しました", "data": parsed_data}), 200
+        return "データを書き込みました。", 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return f"エラー: {str(e)}", 500
 
-# 実行
+@app.route("/clear", methods=["POST"])
+def clear_sheet():
+    try:
+        client = get_gspread_client()
+        sheet = client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+        sheet.batch_clear(["A3:O1000"])  # 実際の必要行数に応じて調整可能
+        return "シートのデータを削除しました。", 200
+    except Exception as e:
+        return f"エラー: {str(e)}", 500
+
+# 実行用
 if __name__ == "__main__":
     app.run(debug=True, port=10000)
