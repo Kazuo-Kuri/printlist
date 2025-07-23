@@ -19,7 +19,7 @@ from style_writer import apply_template_style  # 追加
 app = Flask(__name__)
 
 # --- グローバル定数 ---
-GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwneuX_HR7PafYqT_mAWXnoiaT16DPHW9G9j_Nk2jTBnxuNM55uw13iNDi_M9JrE1hM/exec"
+GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwTf8JcHy1XTP2Jmb9BrhYn7SQnoHLQhyGAi4Zqg2becghy4GOhnyyTY9Hk-4CFowJu/exec"
 SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
 TEMPLATE_ROW_HEIGHT = 8        # テンプレート1ブロックの行数（A1:O8）
 TEMPLATE_DATA_ROW_OFFSET = 3   # テンプレート内でデータが始まる行（3行目）

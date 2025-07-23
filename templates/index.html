@@ -10,7 +10,7 @@
 
         function clearData() {
             if (confirm("スプレッドシートの全データを削除してもよろしいですか？")) {
-                fetch("https://script.google.com/macros/s/AKfycbwneuX_HR7PafYqT_mAWXnoiaT16DPHW9G9j_Nk2jTBnxuNM55uw13iNDi_M9JrE1hM/exec", {
+                fetch("https://script.google.com/macros/s/AKfycbwTf8JcHy1XTP2Jmb9BrhYn7SQnoHLQhyGAi4Zqg2becghy4GOhnyyTY9Hk-4CFowJu/exec", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/x-www-form-urlencoded"
@@ -36,7 +36,7 @@
     <div>予約システムで対象製品のページを開いて、ctr+Aで選択→その後ctr+Cでコピーした値を<br>フィールドに貼り付け(ctr+V)してください。</div><br>
     <form method="POST" onsubmit="clearOnSubmit()">
         <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br><br>
-        <button type="submit">送信</button><br><br><br>
+        <button type="submit" style="font-size: 18px; padding: 10px 30px;">　送　信　</button><br><br><br>
         ↓スプレッドシートのデータ消去<br>
         <button type="button" onclick="clearData() " style="background-color: red; color: white;">データクリア</button>
     </form>
