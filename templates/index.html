@@ -10,14 +10,18 @@
 
         function clearData() {
             if (confirm("スプレッドシートの全データを削除してもよろしいですか？")) {
-                fetch("/clear", {
-                    method: "POST"
-                })
-                .then(response => response.text())
-                .then(data => alert("結果: " + data))
-                .catch(error => alert("エラー: " + error));
-            }
-        }
+                fetch("https://script.google.com/macros/s/AKfycbwneuX_HR7PafYqT_mAWXnoiaT16DPHW9G9j_Nk2jTBnxuNM55uw13iNDi_M9JrE1hM/exec", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: "mode=clear"
+            })
+        .then(response => response.text())
+        .then(data => alert("結果: " + data))
+        .catch(error => alert("エラー: " + error));
+    }
+}
 
         // ✅ 送信後にテキストをクリアする（ダウンロード発生後も動作）
         function clearOnSubmit() {
@@ -29,11 +33,12 @@
 </head>
 <body>
     <h1>印刷メモ・印刷リスト作成アプリ</h1>
-    <div>予約システムで対象製品のページを開いて、ctr+Aで選択→その後ctr+Cでコピーした値を<br>フィールドに貼り付け(ctr+V)してください。
+    <div>予約システムで対象製品のページを開いて、ctr+Aで選択→その後ctr+Cでコピーした値を<br>フィールドに貼り付け(ctr+V)してください。</div><br>
     <form method="POST" onsubmit="clearOnSubmit()">
-        <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
+        <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br><br>
         <button type="submit">送信</button><br><br><br>
-        <button type="button" onclick="clearData()">※データクリア</button>スプレッドシートのデータ消去
+        <span style="color: red;"></span>↓スプレッドシートのデータ消去</span><br>
+        <button type="button" onclick="clearData() " style="background-color: orange; color: white;">データクリア</button>
     </form>
 </body>
 </html>

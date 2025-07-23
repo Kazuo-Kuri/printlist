@@ -4,6 +4,12 @@ import io
 import json
 import re
 import requests
+import logging
+# ✅ ログの基本設定
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 from openpyxl import load_workbook
 from openpyxl.utils import range_boundaries
 import gspread
@@ -13,8 +19,11 @@ from style_writer import apply_template_style  # 追加
 app = Flask(__name__)
 
 # --- グローバル定数 ---
+GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbwneuX_HR7PafYqT_mAWXnoiaT16DPHW9G9j_Nk2jTBnxuNM55uw13iNDi_M9JrE1hM/exec"
+SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
 TEMPLATE_ROW_HEIGHT = 8        # テンプレート1ブロックの行数（A1:O8）
 TEMPLATE_DATA_ROW_OFFSET = 3   # テンプレート内でデータが始まる行（3行目）
+TEMPLATE_EXCEL_PATH = "printlist_form.xlsx"
 
 # --- Flask Secret Key 読み込み ---
 with open("/etc/secrets/flask_secret_key", "r") as f:
@@ -58,8 +67,8 @@ def extract_data(text):
     else:
         results["印刷データ"] = ""
 
-    # メモ欄の抽出（次の空行または文末まで全て）
-    memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]+?)(?:\n\s*\n|$)", text)
+    # メモ欄の抽出（「会社共通情報：」などが出る前まで）
+    memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]*?)(?=\n\s*(?:会社共通情報[:：]|原料豆納品日[:：]|$))", text)
     if memo_match:
         results["メモ"] = memo_match.group(1).strip()
     else:
@@ -74,14 +83,12 @@ def index():
     if request.method == "POST":
         text = request.form["text"]
         extracted_data = extract_data(text)
+        logging.info("抽出データ: %s", extracted_data)
 
         # ✅ 1. GASでテンプレートブロック追加を実行
-        GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
-        payload = {"mode": "copy"} 
         try:
-            payload = {"mode": "copy"}  # ← 追加
-            response = requests.post(GAS_ENDPOINT, data=payload)
-            print(response.text)
+            response = requests.post(GAS_ENDPOINT, data={"mode": "copy"})
+            logging.info("GAS Response: %s", response.text)
             response.raise_for_status()
             result = response.json()
             if result.get("status") == "OK":
@@ -90,17 +97,18 @@ def index():
                 block_index = template_no - 1
                 # テンプレートデータ開始行の位置（A3 = 3行目）
                 start_row = 3 + TEMPLATE_ROW_HEIGHT * block_index
+                logging.info("テンプレNo: %d → 書き込み開始行: %d", template_no, start_row)
             else:
                 flash("テンプレートの追加に失敗しました（GASから異常な応答）")
                 return redirect(url_for("index"))
         except Exception as e:
+            logging.error("GASテンプレート追加失敗: %s", str(e))
             flash("テンプレート追加時にエラー: " + str(e))
             return redirect(url_for("index"))
 
         # ✅ 2. Google Sheets に書き込み
         creds = get_credentials()
         client = gspread.authorize(creds)
-        SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
         output_ws = ss.worksheet("printlist")
 
@@ -127,8 +135,7 @@ def index():
                 output_ws.update_cell(target_row, col, extracted_data[key])
 
         # ✅ 3. Excel ファイル書き出し（従来通り）
-        template_path = "printlist_form.xlsx"
-        wb = load_workbook(template_path)
+        wb = load_workbook(TEMPLATE_EXCEL_PATH)
         ws = wb.active
 
         cell_map = {
@@ -168,10 +175,8 @@ def index():
 # --- GAS経由のスプレッドシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
-        payload = {"mode": "clear"}  # ← 追加
-        response = requests.post(GAS_ENDPOINT, data=payload)
+        response = requests.post(GAS_ENDPOINT, data={"mode": "clear"})
         if response.status_code == 200 and response.text.strip() == "CLEARED":
             flash("スプレッドシートのデータをクリアしました。")
         else:
@@ -183,10 +188,8 @@ def clear_sheet():
 # --- GAS経由のテンプレートブロックコピー ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
-        payload = {"mode": "copy"}  # ← 追加
-        response = requests.post(GAS_ENDPOINT, data=payload)
+        response = requests.post(GAS_ENDPOINT, data={"mode": "copy"})
         if response.status_code == 200:
             result = response.json()
             if result.get("status") == "OK":
