@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>テキスト抽出アプリ</title>
+    <title>印刷メモ・印刷リスト作成アプリ</title>
     <script>
         function clearText() {
             document.getElementById("inputText").value = "";
@@ -28,11 +28,11 @@
     </script>
 </head>
 <body>
-    <h1>テキストから情報抽出</h1>
+    <h1>印刷メモ・印刷リスト作成アプリ</h1>
+    <div>予約システムで対象製品のページを開いて、ctr+Aで選択→その後ctr+Cでコピーした値をフィールドに貼り付け(ctr+V)してください。
     <form method="POST" onsubmit="clearOnSubmit()">
         <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
         <button type="submit">送信</button>
-        <button type="button" onclick="clearText()">クリア</button>
         <button type="button" onclick="clearData()">データクリア</button>
     </form>
 </body>

@@ -58,6 +58,13 @@ def extract_data(text):
     else:
         results["印刷データ"] = ""
 
+    # メモ欄の抽出（次の空行または文末まで全て）
+    memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]+?)(?:\n\s*\n|$)", text)
+    if memo_match:
+        results["メモ"] = memo_match.group(1).strip()
+    else:
+        results["メモ"] = ""
+
     return results
 
 # --- メインエンドポイント ---
@@ -80,8 +87,6 @@ def index():
             if result.get("status") == "OK":
                 template_no = int(result.get("templateNumber"))
                 # ✅ 追加部分
-                TEMPLATE_ROW_HEIGHT = 8
-                TEMPLATE_DATA_ROW_OFFSET = 3
                 block_index = template_no - 1
                 # テンプレートデータ開始行の位置（A3 = 3行目）
                 start_row = 3 + TEMPLATE_ROW_HEIGHT * block_index
@@ -107,6 +112,7 @@ def index():
             "E3": "製造日",
             "F3": "会社名",
             "F5": "製品名",
+            "F8": "メモ",
             "H3": "製品種類",
             "H6": "外装包材",
             "H9": "表面印刷",
