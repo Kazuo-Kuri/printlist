@@ -66,8 +66,11 @@ def index():
 
         # ✅ 1. GASでテンプレートブロック追加を実行
         GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
+        payload = {"mode": "copy"} 
         try:
-            response = requests.post(GAS_ENDPOINT)
+            payload = {"mode": "copy"}  # ← 追加
+            response = requests.post(GAS_ENDPOINT, data=payload)
+            print(response.text)
             response.raise_for_status()
             result = response.json()
             if result.get("status") == "OK":
@@ -151,7 +154,8 @@ def index():
 def clear_sheet():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
-        response = requests.post(GAS_ENDPOINT)
+        payload = {"mode": "clear"}  # ← 追加
+        response = requests.post(GAS_ENDPOINT, data=payload)
         if response.status_code == 200 and response.text.strip() == "CLEARED":
             flash("スプレッドシートのデータをクリアしました。")
         else:
@@ -165,7 +169,8 @@ def clear_sheet():
 def copy_template_block():
     GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
-        response = requests.post(GAS_ENDPOINT)
+        payload = {"mode": "copy"}  # ← 追加
+        response = requests.post(GAS_ENDPOINT, data=payload)
         if response.status_code == 200:
             result = response.json()
             if result.get("status") == "OK":
