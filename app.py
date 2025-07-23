@@ -64,7 +64,50 @@ def index():
         text = request.form["text"]
         extracted_data = extract_data(text)
 
-        # --- Excel書き出し ---
+        # ✅ 1. GASでテンプレートブロック追加を実行
+        GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
+        try:
+            response = requests.post(GAS_ENDPOINT)
+            response.raise_for_status()
+            result = response.json()
+            if result.get("status") == "OK":
+                template_no = int(result.get("templateNumber"))
+                start_row = (template_no - 1) * 8 + 3  # A1:O8 テンプレートは8行
+            else:
+                flash("テンプレートの追加に失敗しました（GASから異常な応答）")
+                return redirect(url_for("index"))
+        except Exception as e:
+            flash("テンプレート追加時にエラー: " + str(e))
+            return redirect(url_for("index"))
+
+        # ✅ 2. Google Sheets に書き込み
+        creds = get_credentials()
+        client = gspread.authorize(creds)
+        SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
+        ss = client.open_by_key(SPREADSHEET_ID)
+        output_ws = ss.worksheet("printlist")
+
+        sheet_map = {
+            "B2": "印刷データ",
+            "C1": "ファイル名",
+            "D1": "製造番号",
+            "D5": "印刷番号",
+            "E1": "製造日",
+            "F1": "会社名",
+            "F3": "製品名",
+            "H1": "製品種類",
+            "H4": "外装包材",
+            "H7": "表面印刷",
+            "M1": "製造個数"
+        }
+
+        for cell_a1, key in sheet_map.items():
+            if key in extracted_data:
+                row = int(cell_a1[1:])
+                col = ord(cell_a1[0].upper()) - 65 + 1
+                output_ws.update_cell(start_row + (row - 3), col, extracted_data[key])
+
+        # ✅ 3. Excel ファイル書き出し（従来通り）
         template_path = "printlist_form.xlsx"
         wb = load_workbook(template_path)
         ws = wb.active
@@ -94,45 +137,6 @@ def index():
         wb.save(excel_stream)
         excel_stream.seek(0)
 
-        # --- Google Sheets書き出し ---
-        creds = get_credentials()
-        client = gspread.authorize(creds)
-
-        SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
-        ss = client.open_by_key(SPREADSHEET_ID)
-        output_ws = ss.worksheet("printlist")
-
-        # ✅ 新しいテンプレートブロックの開始行をB列から取得
-        b_column = output_ws.col_values(2)  # B列を取得（1行目から）
-        template_numbers = [int(val) for val in b_column[2:] if val.isdigit()]  # B3以降、数字だけ抽出
-        latest_template_no = max(template_numbers) if template_numbers else 0
-        start_row = (latest_template_no + 1)
-
-        # === スタイルを適用（必要であれば） ===
-        apply_template_style(output_ws, start_row)  # ※任意（既にスタイル済みならスキップ可能）
-
-        # ✅ 書き込みマップ（テンプレートの行位置に加算）
-        sheet_map = {
-            "B2": "印刷データ",
-            "C1": "ファイル名",
-            "D1": "製造番号",
-            "D5": "印刷番号",
-            "E1": "製造日",
-            "F1": "会社名",
-            "F3": "製品名",
-            "H1": "製品種類",
-            "H4": "外装包材",
-            "H7": "表面印刷",
-            "M1": "製造個数"
-        }
-
-        for cell_a1, key in sheet_map.items():
-            if key in extracted_data:
-                row = int(cell_a1[1:])
-                col = ord(cell_a1[0].upper()) - 65 + 1
-                output_ws.update_cell(start_row + (row - 3), col, extracted_data[key])  # B3を基準にずらす
-
-
         return send_file(
             excel_stream,
             as_attachment=True,
@@ -145,7 +149,7 @@ def index():
 # --- GAS経由のスプレッドシートクリア ---
 @app.route("/clear", methods=["POST"])
 def clear_sheet():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbyhVDrk1fweJSj3UkoXL9m1tHIRcK4iMIo_IQwJcNN7phZNGg5513NtuQy-ROf7Qig4/exec"
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
         if response.status_code == 200 and response.text.strip() == "CLEARED":
@@ -159,11 +163,15 @@ def clear_sheet():
 # --- GAS経由のテンプレートブロックコピー ---
 @app.route("/copy", methods=["POST"])
 def copy_template_block():
-    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxcr6gSE06BXBOMZnuRXpPYEJk1VC-Ei7qSR5jDNoLCFnDR2tXXzvzLTKDi0iyLpqgo/exec"
+    GAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbxxiSLz0fD1oEDnW5cFd3Sl1a0L_ymutKYlZfViyqmL2flju9fVl99TNw4ixLDRJwDR/exec"
     try:
         response = requests.post(GAS_ENDPOINT)
-        if response.status_code == 200 and "TEMPLATE COPIED" in response.text:
-            flash("テンプレートをコピーしました。")
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("status") == "OK":
+                flash(f"テンプレートをコピーしました（No.{result.get('templateNumber')}）")
+            else:
+                flash("コピーに失敗しました（レスポンス異常）：" + str(result))
         else:
             flash("コピーに失敗しました：" + response.text)
     except Exception as e:
