@@ -18,11 +18,18 @@
                 .catch(error => alert("エラー: " + error));
             }
         }
+
+        // ✅ 送信後にテキストをクリアする（ダウンロード発生後も動作）
+        function clearOnSubmit() {
+            setTimeout(() => {
+                document.getElementById("inputText").value = "";
+            }, 100); // 少し遅らせてからクリア
+        }
     </script>
 </head>
 <body>
     <h1>テキストから情報抽出</h1>
-    <form method="POST">
+    <form method="POST" onsubmit="clearOnSubmit()">
         <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br>
         <button type="submit">送信</button>
         <button type="button" onclick="clearText()">クリア</button>
