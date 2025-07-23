@@ -18,8 +18,28 @@
                     body: "mode=clear"
             })
         .then(response => response.text())
-        .then(data => alert("結果: " + data))
-        .catch(error => alert("エラー: " + error));
+        .then(data => {
+          const msg = document.getElementById("statusMessage");
+          msg.textContent = "✅ 結果: " + data;
+          msg.style.color = "green";
+          msg.style.display = "block";
+
+          // 3秒後に非表示
+          setTimeout(() => {
+            msg.style.display = "none";
+          }, 3000);
+        })
+        .catch(error => {
+          const msg = document.getElementById("statusMessage");
+          msg.textContent = "⚠ エラー: " + error;
+          msg.style.color = "red";
+          msg.style.display = "block";
+
+          // 5秒後に非表示（エラーは長め）
+          setTimeout(() => {
+            msg.style.display = "none";
+         }, 5000);
+        });
     }
 }
 
@@ -37,8 +57,9 @@
     <form method="POST" onsubmit="clearOnSubmit()">
         <textarea id="inputText" name="text" rows="20" cols="100"></textarea><br><br>
         <button type="submit" style="font-size: 18px; padding: 10px 30px;">送信</button><br><br><br>
-        ↓スプレッドシートのデータ消去<br>
+        <div style="font-size: 0.7em; color: #d9534f; font-weight: bold;">↓スプレッドシートのデータ消去</div><br>
         <button type="button" onclick="clearData() " style="background-color: red; color: white;">データクリア</button>
+        <p id="statusMessage" style="font-weight: bold; margin-top: 1em; display: none;"></p>
     </form>
 </body>
 </html>
