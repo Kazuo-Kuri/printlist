@@ -69,11 +69,9 @@ def extract_data(text):
 
     # メモ欄の抽出（「会社共通情報：」などが出る前まで）
     memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]*?)(?=\n\s*(?:会社共通情報[:：]|原料豆納品日[:：]|$))", text)
-
     if memo_match:
         memo_text = memo_match.group(1).strip()
-        # 空白・改行だけの場合は空欄として扱う
-        if memo_text == "" or re.fullmatch(r"\s*", memo_text):
+        if memo_text == "":
             results["メモ"] = ""
         else:
             results["メモ"] = memo_text
