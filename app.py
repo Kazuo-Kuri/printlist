@@ -12,6 +12,10 @@ from style_writer import apply_template_style  # 追加
 
 app = Flask(__name__)
 
+# --- グローバル定数 ---
+TEMPLATE_ROW_HEIGHT = 8        # テンプレート1ブロックの行数（A1:O8）
+TEMPLATE_DATA_ROW_OFFSET = 3   # テンプレート内でデータが始まる行（3行目）
+
 # --- Flask Secret Key 読み込み ---
 with open("/etc/secrets/flask_secret_key", "r") as f:
     app.secret_key = f.read().strip()
@@ -79,7 +83,8 @@ def index():
                 TEMPLATE_ROW_HEIGHT = 8
                 TEMPLATE_DATA_ROW_OFFSET = 3
                 block_index = template_no - 1
-                start_row = 1 + TEMPLATE_ROW_HEIGHT * block_index
+                # テンプレートデータ開始行の位置（A3 = 3行目）
+                start_row = 3 + TEMPLATE_ROW_HEIGHT * block_index
             else:
                 flash("テンプレートの追加に失敗しました（GASから異常な応答）")
                 return redirect(url_for("index"))
@@ -107,13 +112,6 @@ def index():
             "H7": "表面印刷",
             "M1": "製造個数"
         }
-
-        TEMPLATE_ROW_HEIGHT = 8        # テンプレート1ブロックの行数（A1:O8）
-        TEMPLATE_DATA_ROW_OFFSET = 3   # テンプレート内でデータが始まる行（3行目）
-
-        # block_index はテンプレートブロックの番号（0, 1, 2...）
-        # すでにテンプレートが1個あるなら block_index = 0 としておく
-        start_row = 1 + TEMPLATE_ROW_HEIGHT * block_index
 
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
