@@ -75,7 +75,11 @@ def index():
             result = response.json()
             if result.get("status") == "OK":
                 template_no = int(result.get("templateNumber"))
-                start_row = (template_no - 1) * 8 + 3  # A1:O8 テンプレートは8行
+                # ✅ 追加部分
+                TEMPLATE_ROW_HEIGHT = 8
+                TEMPLATE_DATA_ROW_OFFSET = 3
+                block_index = template_no - 1
+                start_row = 1 + TEMPLATE_ROW_HEIGHT * block_index
             else:
                 flash("テンプレートの追加に失敗しました（GASから異常な応答）")
                 return redirect(url_for("index"))
@@ -104,11 +108,19 @@ def index():
             "M1": "製造個数"
         }
 
+        TEMPLATE_ROW_HEIGHT = 8        # テンプレート1ブロックの行数（A1:O8）
+        TEMPLATE_DATA_ROW_OFFSET = 3   # テンプレート内でデータが始まる行（3行目）
+
+        # block_index はテンプレートブロックの番号（0, 1, 2...）
+        # すでにテンプレートが1個あるなら block_index = 0 としておく
+        start_row = 1 + TEMPLATE_ROW_HEIGHT * block_index
+
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
                 row = int(cell_a1[1:])
                 col = ord(cell_a1[0].upper()) - 65 + 1
-                output_ws.update_cell(start_row + (row - 3), col, extracted_data[key])
+                target_row = start_row + (row - TEMPLATE_DATA_ROW_OFFSET)
+                output_ws.update_cell(target_row, col, extracted_data[key])
 
         # ✅ 3. Excel ファイル書き出し（従来通り）
         template_path = "printlist_form.xlsx"
