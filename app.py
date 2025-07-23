@@ -100,39 +100,38 @@ def index():
 
         SPREADSHEET_ID = "1fKN1EDZTYOlU4OvImQZuifr2owM8MIGgQIr0tu_rX0E"
         ss = client.open_by_key(SPREADSHEET_ID)
-        template_ws = ss.worksheet("sheet1")
         output_ws = ss.worksheet("printlist")
 
-        existing_rows = len(output_ws.get_all_values())
-        block_index = max((existing_rows - 2) // 10, 0)
-        start_row = block_index * 10 + 1
+        # ✅ 新しいテンプレートブロックの開始行をB列から取得
+        b_column = output_ws.col_values(2)  # B列を取得（1行目から）
+        template_numbers = [int(val) for val in b_column[2:] if val.isdigit()]  # B3以降、数字だけ抽出
+        latest_template_no = max(template_numbers) if template_numbers else 0
+        start_row = (latest_template_no + 1)
 
-        template_range = template_ws.get_values("A1:O10")
-        for i, row in enumerate(template_range):
-            output_ws.update(f"A{start_row + i}:O{start_row + i}", [row])
+        # === スタイルを適用（必要であれば） ===
+        apply_template_style(output_ws, start_row)  # ※任意（既にスタイル済みならスキップ可能）
 
-        # === スタイルを適用 ===
-        apply_template_style(output_ws, start_row)
-
+        # ✅ 書き込みマップ（テンプレートの行位置に加算）
         sheet_map = {
-            "B3": "印刷データ",
-            "C3": "ファイル名",
-            "D3": "製造番号",
-            "D7": "印刷番号",
-            "E3": "製造日",
-            "F3": "会社名",
-            "F5": "製品名",
-            "H3": "製品種類",
-            "H6": "外装包材",
-            "H9": "表面印刷",
-            "M3": "製造個数"
+            "B2": "印刷データ",
+            "C1": "ファイル名",
+            "D1": "製造番号",
+            "D5": "印刷番号",
+            "E1": "製造日",
+            "F1": "会社名",
+            "F3": "製品名",
+            "H1": "製品種類",
+            "H4": "外装包材",
+            "H7": "表面印刷",
+            "M1": "製造個数"
         }
 
         for cell_a1, key in sheet_map.items():
             if key in extracted_data:
                 row = int(cell_a1[1:])
                 col = ord(cell_a1[0].upper()) - 65 + 1
-                output_ws.update_cell(start_row + (row - 1), col, extracted_data[key])
+                output_ws.update_cell(start_row + (row - 3), col, extracted_data[key])  # B3を基準にずらす
+
 
         return send_file(
             excel_stream,
