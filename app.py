@@ -67,15 +67,14 @@ def extract_data(text):
     else:
         results["印刷データ"] = ""
 
-    # メモ欄の抽出（「会社共通情報：」などが出る前まで）
-    memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]*?)(?=\n\s*(会社共通情報[:：]|原料豆納品日[:：]|$))", text)
+    # 前処理：改行なしで続くパターンを強制改行に変換
+    text = re.sub(r"メモ欄[:：]\s*(会社共通情報[:：]|原料豆納品日[:：])", r"メモ欄：\n\1", text)
+
+    # 抽出処理
+    memo_match = re.search(r"メモ欄[:：]\s*\n([\s\S]*?)(?=\n?\s*(会社共通情報[:：]|原料豆納品日[:：]|$))", text)
     if memo_match:
         memo_text = memo_match.group(1).strip()
-        # 空欄か、空白や改行のみの場合は空文字として扱う
-        if not memo_text or re.fullmatch(r"\s*", memo_text):
-            results["メモ"] = ""
-        else:
-            results["メモ"] = memo_text
+        results["メモ"] = "" if not memo_text or re.fullmatch(r"\s*", memo_text) else memo_text
     else:
         results["メモ"] = ""
 
