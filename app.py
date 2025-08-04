@@ -59,8 +59,16 @@ def extract_data(text):
         match = re.search(pattern, text, re.DOTALL)
         if match:
             value = match.group(1).strip()
+            # --- 個別調整 ---
             if key == "製造日":
-                value = re.sub(r"^\d{4}/", "", value)  # ← ここで年を削除
+                value = re.sub(r"^\d{4}/", "", value)
+            elif key == "外装包材":
+                value = re.sub(r"フィルム$", "", value)
+            elif key == "表面印刷":
+                value = re.sub(r"印刷$", "", value)
+            elif key == "製造個数":
+                value = re.sub(r"個$", "", value).strip()
+
             results[key] = value
 
     # 印刷データの新規・リピート分類
