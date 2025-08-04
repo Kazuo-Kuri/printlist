@@ -61,7 +61,9 @@ def extract_data(text):
             value = match.group(1).strip()
             # --- 個別調整 ---
             if key == "製造日":
-                value = re.sub(r"^\d{4}/", "", value)
+                value = re.sub(r"^\d{4}/", "", value)        # 年を削除 → 08/07 (木)
+                value = re.sub(r"^0(\d)/", r"\1/", value)    # 月の先頭0削除 → 8/07 (木)
+                value = re.sub(r"/0(\d)", r"/\1", value)     # 日の先頭0削除 → 8/7 (木)
             elif key == "外装包材":
                 value = re.sub(r"フィルム$", "", value)
             elif key == "表面印刷":
